@@ -363,6 +363,7 @@ adminRouter.put('/videos', async (req, res) => {
     untertitel: String(body.untertitel ?? ''),
     beschreibung: String(body.beschreibung ?? ''),
     dauer,
+    oeffentlich: body.oeffentlich === true,
     paketIds: gewuenschtePakete,
     datei,
     sortierung: Number(body.sortierung) || 0,

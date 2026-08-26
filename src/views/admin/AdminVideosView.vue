@@ -30,6 +30,7 @@ interface Editor {
   beschreibung: string
   dauer: string
   paketIds: number[]
+  oeffentlich: boolean
   datei: string
   sortierung: string
   aktiv: boolean
@@ -80,7 +81,7 @@ const columns: Column[] = [
   { label: 'Titel', width: 'minmax(180px,1fr)' },
   { label: 'Untertitel', width: 'minmax(150px,0.9fr)' },
   { label: 'Dauer', width: '80px' },
-  { label: 'Pakete', width: 'minmax(150px,0.9fr)' },
+  { label: 'Sichtbar über', width: 'minmax(150px,0.9fr)' },
   { label: 'Datei', width: 'minmax(150px,0.8fr)' },
   { label: 'Status', width: '90px' },
   { width: '210px' },
@@ -134,6 +135,7 @@ function startNew() {
     beschreibung: '',
     dauer: '',
     paketIds: [],
+    oeffentlich: false,
     datei: '',
     sortierung: '0',
     aktiv: true,
@@ -154,6 +156,7 @@ function startEdit(row: Video) {
     beschreibung: row.beschreibung,
     dauer: row.dauer,
     paketIds: [...row.paketIds],
+    oeffentlich: row.oeffentlich,
     datei: row.datei,
     sortierung: String(row.sortierung),
     aktiv: row.aktiv,
@@ -331,6 +334,7 @@ async function save() {
       beschreibung: editing.value.beschreibung,
       dauer: editing.value.dauer,
       paketIds: editing.value.paketIds,
+      oeffentlich: editing.value.oeffentlich,
       datei: editing.value.datei,
       sortierung: Number(editing.value.sortierung) || 0,
       aktiv: editing.value.aktiv,
@@ -509,12 +513,20 @@ async function remove(row: Video) {
         compact
       />
 
+      <!--
+        „Öffentlich" steht bewusst in derselben Liste wie die Pakete: es ist
+        eine weitere Art, ein Video sichtbar zu machen, und schließt die
+        Pakete nicht aus. Ein Video kann in Paketen liegen UND frei sein —
+        etwa als Schnupperfolge.
+      -->
       <div class="assign">
-        <span class="t-eyebrow">Pakete</span>
-        <p v-if="!pakete.length" class="hint">
-          Es gibt noch keine Pakete — ohne Zuordnung ist das Video öffentlich sichtbar.
-        </p>
-        <div v-else class="paket-list">
+        <span class="t-eyebrow">Sichtbar über</span>
+        <div class="paket-list">
+          <label class="paket oeffentlich">
+            <input v-model="editing.oeffentlich" type="checkbox" />
+            Öffentlich <span class="t-meta">(ohne Anmeldung)</span>
+          </label>
+
           <label v-for="paket in pakete" :key="paket.id" class="paket">
             <input
               type="checkbox"
@@ -526,7 +538,12 @@ async function remove(row: Video) {
           </label>
         </div>
         <p class="hint">
-          Ohne Haken ist das Video für alle sichtbar — auch ohne Anmeldung.
+          <template v-if="!editing.oeffentlich && !editing.paketIds.length">
+            Ohne Haken sieht das Video nur, wem es unter „Nutzer" einzeln freigeschaltet wurde.
+          </template>
+          <template v-else>
+            Mehrfachauswahl möglich — öffentlich und in Paketen zugleich ist erlaubt.
+          </template>
         </p>
       </div>
 
@@ -547,7 +564,10 @@ async function remove(row: Video) {
         <span class="muted t-truncate">{{ row.untertitel || '—' }}</span>
         <span class="muted">{{ row.dauer || '—' }}</span>
         <span class="muted t-truncate">
-          {{ row.paketNamen.length ? row.paketNamen.join(', ') : 'Öffentlich' }}
+          {{
+            [...(row.oeffentlich ? ['Öffentlich'] : []), ...row.paketNamen].join(', ') ||
+            'nur einzeln'
+          }}
         </span>
         <span :class="row.datei ? 'muted' : 'flag'" class="t-truncate">
           {{ row.datei || 'keine Datei' }}
@@ -752,6 +772,14 @@ async function remove(row: Video) {
   gap: 10px;
   cursor: pointer;
   font-size: var(--fs-secondary);
+}
+
+/* Der Öffentlich-Schalter gehört sichtbar zur Liste, ist aber kein Paket. */
+.oeffentlich {
+  padding-right: 16px;
+  margin-right: 6px;
+  border-right: 1px solid var(--c-hairline);
+  font-weight: 500;
 }
 
 .paket input,

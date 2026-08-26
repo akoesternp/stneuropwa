@@ -51,7 +51,7 @@ watch(
           :untertitel="video.untertitel"
           :beschreibung="video.beschreibung"
           :dauer="video.dauer"
-          :marken="video.paketNamen.length ? video.paketNamen : ['Frei verfügbar']"
+          :marken="[...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen]"
           :ohne-datei="!video.datei"
         />
 

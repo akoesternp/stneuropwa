@@ -169,7 +169,7 @@ onBeforeUnmount(loesePlayer)
       <p v-if="video.beschreibung" class="beschreibung">{{ video.beschreibung }}</p>
 
       <p class="meta t-meta">
-        {{ video.paketNamen.length ? video.paketNamen.join(' · ') : 'Frei verfügbar'
+        {{ [...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen].join(' · ')
         }}<template v-if="video.dauer"> · {{ video.dauer }}</template>
       </p>
     </template>

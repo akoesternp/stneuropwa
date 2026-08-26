@@ -77,25 +77,29 @@ async function seedBeispieldaten(log: (message: string) => void): Promise<void> 
     aktiv: true,
   })
 
-  // Das letzte Beispiel liegt bewusst in beiden Paketen — so ist die
-  // Mehrfachzuordnung von Anfang an sichtbar.
-  const kacheln: [string, string, string, string, number[]][] = [
-    ['Willkommen', 'Was Sie hier erwartet', 'Ein kurzer Überblick über das Portal und die Inhalte, die Sie hier finden.', '02:15', []],
-    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', 'Anmeldung, Pakete und Wiedergabe — alles Wichtige einmal durchgegangen.', '03:10', []],
-    ['Erste Schritte', 'Grundlagen, Teil 1', 'Die Grundbegriffe von Anfang an erklärt, ohne Vorwissen nachvollziehbar.', '12:30', [grundlagen]],
-    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', 'Baut auf Teil 1 auf und ordnet die Begriffe in den größeren Zusammenhang ein.', '14:05', [grundlagen]],
-    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', 'Ein durchgerechnetes Beispiel aus der Praxis, Schritt für Schritt.', '18:40', [aufbau]],
-    ['Praxisbeispiel B', 'In beiden Paketen enthalten', 'Zweites Praxisbeispiel mit abweichender Ausgangslage — zeigt die Unterschiede.', '21:12', [grundlagen, aufbau]],
+  /*
+   * Das vorletzte Beispiel liegt in beiden Paketen, das letzte ist zugleich
+   * öffentlich UND in einem Paket — so sind beide Fälle von Anfang an
+   * sichtbar. Der letzte Wert je Zeile ist der Öffentlich-Schalter.
+   */
+  const kacheln: [string, string, string, string, number[], boolean][] = [
+    ['Willkommen', 'Was Sie hier erwartet', 'Ein kurzer Überblick über das Portal und die Inhalte, die Sie hier finden.', '02:15', [], true],
+    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', 'Anmeldung, Pakete und Wiedergabe — alles Wichtige einmal durchgegangen.', '03:10', [], true],
+    ['Erste Schritte', 'Grundlagen, Teil 1', 'Die Grundbegriffe von Anfang an erklärt, ohne Vorwissen nachvollziehbar.', '12:30', [grundlagen], false],
+    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', 'Baut auf Teil 1 auf und ordnet die Begriffe in den größeren Zusammenhang ein.', '14:05', [grundlagen], false],
+    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', 'Ein durchgerechnetes Beispiel aus der Praxis, Schritt für Schritt.', '18:40', [aufbau], false],
+    ['Praxisbeispiel B', 'Schnupperfolge — im Paket und zugleich frei', 'Zweites Praxisbeispiel mit abweichender Ausgangslage — zeigt die Unterschiede.', '21:12', [grundlagen, aufbau], true],
   ]
 
   let sortierung = 1
-  for (const [titel, untertitel, beschreibung, dauer, paketIds] of kacheln) {
+  for (const [titel, untertitel, beschreibung, dauer, paketIds, oeffentlich] of kacheln) {
     await saveVideo(null, {
       titel,
       untertitel,
       beschreibung,
       dauer,
       paketIds,
+      oeffentlich,
       datei: '',
       sortierung: sortierung++,
       aktiv: true,

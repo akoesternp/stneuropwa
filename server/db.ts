@@ -105,6 +105,7 @@ async function createSchema(): Promise<void> {
         beschreibung TEXT NOT NULL,
         dauer VARCHAR(16) NOT NULL DEFAULT '',
         datei VARCHAR(255) NOT NULL DEFAULT '',
+        oeffentlich TINYINT(1) NOT NULL DEFAULT 0,
         sortierung INT NOT NULL DEFAULT 0,
         aktiv TINYINT(1) NOT NULL DEFAULT 1,
         PRIMARY KEY (id)
@@ -147,6 +148,22 @@ async function createSchema(): Promise<void> {
          SELECT id, paket_id FROM videos WHERE paket_id IS NOT NULL`,
       )
       await conn.query(`ALTER TABLE videos DROP COLUMN paket_id`)
+    }
+
+    /*
+     * „Öffentlich" war früher gleichbedeutend mit „in keinem Paket". Jetzt ist
+     * es ein eigener Schalter, damit ein Video zugleich öffentlich und Teil
+     * eines Pakets sein kann. Beim Nachrüsten der Spalte wird der bisherige
+     * Zustand übernommen, sonst verschwänden die freien Videos schlagartig.
+     */
+    if (!spalten.some((spalte) => spalte.Field === 'oeffentlich')) {
+      await conn.query(
+        `ALTER TABLE videos ADD COLUMN oeffentlich TINYINT(1) NOT NULL DEFAULT 0 AFTER datei`,
+      )
+      await conn.query(
+        `UPDATE videos SET oeffentlich = 1
+         WHERE id NOT IN (SELECT video_id FROM video_pakete)`,
+      )
     }
 
     await conn.query(
@@ -432,7 +449,7 @@ export async function deletePaket(id: number): Promise<'ok' | 'videos' | 'benutz
 /* ── Videos ────────────────────────────────────────────────────────────── */
 
 const VIDEO_SPALTEN =
-  'v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei, v.sortierung, v.aktiv'
+  'v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei, v.oeffentlich, v.sortierung, v.aktiv'
 
 /**
  * Die Sichtbarkeitsregel für einen angemeldeten Nutzer: öffentlich (in keinem
@@ -446,7 +463,7 @@ const VIDEO_SPALTEN =
  * Erwartet zweimal die Benutzer-ID als Parameter.
  */
 const SICHTBAR_FUER_NUTZER = `(
-  NOT EXISTS (SELECT 1 FROM video_pakete vp WHERE vp.video_id = v.id)
+  v.oeffentlich = 1
   OR EXISTS (
     SELECT 1 FROM video_pakete vp
     JOIN pakete p ON p.id = vp.paket_id AND p.aktiv = 1
@@ -456,8 +473,8 @@ const SICHTBAR_FUER_NUTZER = `(
   OR EXISTS (SELECT 1 FROM benutzer_videos bv WHERE bv.video_id = v.id AND bv.benutzer_id = ?)
 )`
 
-/** Ohne Anmeldung: nur, was in keinem Paket liegt. */
-const OEFFENTLICH = `NOT EXISTS (SELECT 1 FROM video_pakete vp WHERE vp.video_id = v.id)`
+/** Ohne Anmeldung: nur, was ausdrücklich öffentlich gestellt ist. */
+const OEFFENTLICH = `v.oeffentlich = 1`
 
 /**
  * Hängt die Paketzuordnung an die Videozeilen.
@@ -476,6 +493,7 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     paketIds: [],
     paketNamen: [],
     datei: String(row.datei ?? ''),
+    oeffentlich: Number(row.oeffentlich) === 1,
     sortierung: Number(row.sortierung) || 0,
     aktiv: Number(row.aktiv) === 1,
   }))
@@ -579,15 +597,15 @@ export async function saveVideo(
     let videoId: number
     if (id === null) {
       const result = await conn.query(
-        'INSERT INTO videos (titel, untertitel, beschreibung, dauer, datei, sortierung, aktiv) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0],
+        'INSERT INTO videos (titel, untertitel, beschreibung, dauer, datei, oeffentlich, sortierung, aktiv) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0, daten.sortierung, daten.aktiv ? 1 : 0],
       )
       videoId = Number(result.insertId)
     } else {
       videoId = id
       await conn.query(
-        'UPDATE videos SET titel = ?, untertitel = ?, beschreibung = ?, dauer = ?, datei = ?, sortierung = ?, aktiv = ? WHERE id = ?',
-        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0, id],
+        'UPDATE videos SET titel = ?, untertitel = ?, beschreibung = ?, dauer = ?, datei = ?, oeffentlich = ?, sortierung = ?, aktiv = ? WHERE id = ?',
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0, daten.sortierung, daten.aktiv ? 1 : 0, id],
       )
     }
 
@@ -658,7 +676,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
 
   const zeilen: Record<string, unknown>[] = await getPool().query(
     `SELECT vp.paket_id, v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei,
-            ${benutzerId === null ? '0' : SICHTBAR_FUER_NUTZER} AS freigeschaltet
+            ${benutzerId === null ? OEFFENTLICH : SICHTBAR_FUER_NUTZER} AS freigeschaltet
      FROM video_pakete vp
      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
      WHERE vp.paket_id IN (?)

@@ -18,8 +18,9 @@ export interface Paket {
 /**
  * Eine Video-Kachel.
  *
- * Ein Video kann in mehreren Paketen liegen — `paketIds` leer bedeutet
- * öffentlich: die Kachel sehen auch Besucher ohne Anmeldung.
+ * Paketzugehörigkeit und Öffentlichkeit sind unabhängig voneinander: ein
+ * Video kann in mehreren Paketen liegen, zugleich öffentlich sein, oder
+ * beides nicht — dann sieht es nur, wem es einzeln freigeschaltet wurde.
  */
 export interface Video {
   id: number
@@ -32,8 +33,10 @@ export interface Video {
   beschreibung: string
   /** Anzeigetext, z. B. "12:30". Beim Verknüpfen aus der Datei ausgelesen. */
   dauer: string
-  /** Pakete, in denen dieses Video liegt. Leer = öffentlich. */
+  /** Pakete, in denen dieses Video liegt. */
   paketIds: number[]
+  /** Ohne Anmeldung sichtbar — unabhängig von den Paketen. */
+  oeffentlich: boolean
   /** Paketnamen zum Anzeigen auf der Kachel, vom Server aufgelöst. */
   paketNamen: string[]
   /**
