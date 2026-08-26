@@ -5,12 +5,14 @@ import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
+const fortschritt = useFortschrittStore()
 
 const expired = computed(() => route.query.abgelaufen === '1')
 
@@ -22,7 +24,7 @@ async function onSubmit() {
   const ok = await auth.login(email.value, password.value, staySignedIn.value)
   if (ok) {
     // Mit der Sitzung ändert sich, was der Server herausgibt.
-    await videos.reload()
+    await Promise.all([videos.reload(), fortschritt.reload()])
     // Zurück dorthin, wo die Anmeldung abgefangen hat — sonst zur Startseite.
     router.push(auth.anmeldeZielFuer('portal'))
   }

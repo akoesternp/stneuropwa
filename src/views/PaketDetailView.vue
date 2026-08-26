@@ -5,7 +5,9 @@ import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useFortschrittStore } from '@/stores/fortschritt'
 import { usePaketeStore } from '@/stores/pakete'
+import { dauerInSekunden } from '@/utils/format'
 
 /**
  * Der Inhalt eines Pakets als Kachel-Übersicht, wie auf der Startseite.
@@ -18,9 +20,11 @@ import { usePaketeStore } from '@/stores/pakete'
 const route = useRoute()
 const auth = useAuthStore()
 const pakete = usePaketeStore()
+const fortschritt = useFortschrittStore()
 
 onMounted(() => {
   void pakete.ensureLoaded()
+  if (auth.isAuthenticated) void fortschritt.reload()
 })
 
 // Mit der Sitzung ändert sich, was als freigeschaltet gilt.
@@ -38,6 +42,18 @@ const hatPaket = computed(() => auth.user?.pakete.includes(paket.value?.name ?? 
 const offeneAnzahl = computed(
   () => paket.value?.videos.filter((video) => !video.freigeschaltet).length ?? 0,
 )
+
+const erledigtAnzahl = computed(
+  () => paket.value?.videos.filter((video) => fortschritt.fuer(video.id)?.erledigt).length ?? 0,
+)
+
+/** Anteil einer Übung am Fortschrittsbalken der Kachel. */
+function anteil(videoId: number, dauer: string): number {
+  const stand = fortschritt.fuer(videoId)
+  if (!stand?.position) return 0
+  const gesamt = dauerInSekunden(dauer)
+  return gesamt ? stand.position / gesamt : 0
+}
 </script>
 
 <template>
@@ -56,7 +72,10 @@ const offeneAnzahl = computed(
               v-if="paket.gesamtdauer"
             >
               · {{ paket.gesamtdauer }} Gesamtlaufzeit</template
-            ><template v-if="offeneAnzahl"> · {{ offeneAnzahl }} gesperrt</template>
+            ><template v-if="offeneAnzahl"> · {{ offeneAnzahl }} gesperrt</template
+            ><template v-if="auth.isAuthenticated && erledigtAnzahl">
+              · {{ erledigtAnzahl }} von {{ paket.videos.length }} erledigt</template
+            >
           </p>
         </div>
         <span v-if="hatPaket" class="marke frei">Freigeschaltet</span>
@@ -74,6 +93,8 @@ const offeneAnzahl = computed(
           :merkmale="[video.bereich, video.schwierigkeit].filter(Boolean)"
           :gesperrt="!video.freigeschaltet"
           :ohne-datei="!video.hatDatei"
+          :anteil="anteil(video.id, video.dauer)"
+          :erledigt="fortschritt.fuer(video.id)?.erledigt ?? false"
         />
       </div>
 

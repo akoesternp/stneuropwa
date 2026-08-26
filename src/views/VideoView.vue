@@ -5,6 +5,7 @@ import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import GButton from '@/components/ui/GButton.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 
 /**
@@ -19,6 +20,7 @@ import { useVideosStore } from '@/stores/videos'
 const route = useRoute()
 const auth = useAuthStore()
 const videos = useVideosStore()
+const fortschritt = useFortschrittStore()
 
 onMounted(() => {
   void videos.ensureLoaded()
@@ -32,6 +34,33 @@ const streamUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/
 
 /** Das Vorschaubild dient als Standbild, bevor jemand auf Abspielen drückt. */
 const posterUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/thumb`)
+
+/**
+ * Die nächste Übung desselben Pakets — beim Training arbeitet man eine Reihe
+ * ab, und der Umweg über die Übersicht kostet jedes Mal zwei Klicks.
+ *
+ * Maßgeblich ist das erste Paket des Videos; liegt es in mehreren, ist das
+ * eine Festlegung, aber eine nachvollziehbare.
+ */
+const naechste = computed(() => {
+  const aktuell = video.value
+  const paketId = aktuell?.paketIds[0]
+  if (!aktuell || paketId === undefined) return null
+
+  const reihe = videos.videos
+    .filter((eintrag) => eintrag.paketIds.includes(paketId))
+    .sort((a, b) => a.sortierung - b.sortierung || a.id - b.id)
+
+  const stelle = reihe.findIndex((eintrag) => eintrag.id === aktuell.id)
+  return stelle >= 0 ? (reihe[stelle + 1] ?? null) : null
+})
+
+/**
+ * Viele Neuro-Drills laufen 30–60 Sekunden in Schleife. Der Schalter sitzt am
+ * Medienelement selbst statt an Plyrs Optionen, damit er sich im Betrieb
+ * umlegen lässt, ohne den Player neu aufzubauen.
+ */
+const wiederholen = ref(false)
 
 /*
  * Der eingebaute Player sieht in jedem Browser anders aus und lässt sich kaum
@@ -102,6 +131,66 @@ const OPTIONEN: Plyr.Options = {
 const videoEl = ref<HTMLVideoElement | null>(null)
 let player: Plyr | null = null
 
+// Nach der Deklaration von videoEl, sonst greift der Watcher ins Leere.
+watch([wiederholen, videoEl], ([an, element]) => {
+  if (element) element.loop = an
+})
+
+/*
+ * Der Stand wird nicht bei jedem Fortschreiten gemeldet — das wären mehrere
+ * Anfragen je Sekunde. Alle zehn Sekunden genügt: mehr als diese Spanne kann
+ * bei einem Absturz verlorengehen, und beim Anhalten oder Verlassen der Seite
+ * wird ohnehin sofort gespeichert.
+ */
+const MELDE_ABSTAND_MS = 10_000
+
+/** Vor dieser Marke lohnt das Wiederaufnehmen nicht — man fängt eher neu an. */
+const MINDEST_POSITION_S = 5
+
+/** So kurz vor dem Ende gilt die Übung als durch; dann wieder von vorn. */
+const REST_S = 10
+
+let letzteMeldung = 0
+
+const videoId = computed(() => Number(route.params.id))
+const stand = computed(() => fortschritt.fuer(videoId.value))
+const erledigt = computed(() => stand.value?.erledigt ?? false)
+
+function melde(position: number, fertig: boolean) {
+  if (!auth.isAuthenticated) return
+  letzteMeldung = Date.now()
+  void fortschritt.melden(videoId.value, position, fertig)
+}
+
+/** Haken von Hand — man macht eine Übung auch mal, ohne das Video auszuspielen. */
+function erledigtUmschalten() {
+  melde(erledigt.value ? (player?.currentTime ?? 0) : 0, !erledigt.value)
+}
+
+function hefteFortschrittAn(instanz: Plyr) {
+  if (!auth.isAuthenticated) return
+
+  instanz.on('loadedmetadata', () => {
+    const position = stand.value?.position ?? 0
+    const dauer = instanz.duration || 0
+
+    // Nicht wieder aufnehmen, wenn es fast schon durch war — sonst landet man
+    // im Abspann und muss von Hand zurückspulen.
+    if (position > MINDEST_POSITION_S && (!dauer || position < dauer - REST_S)) {
+      instanz.currentTime = position
+    }
+  })
+
+  instanz.on('timeupdate', () => {
+    if (Date.now() - letzteMeldung < MELDE_ABSTAND_MS) return
+    melde(instanz.currentTime, erledigt.value)
+  })
+
+  instanz.on('pause', () => melde(instanz.currentTime, erledigt.value))
+  // Durchgelaufen: als erledigt merken und beim nächsten Mal von vorn.
+  instanz.on('ended', () => melde(0, true))
+}
+
 function loesePlayer() {
   try {
     player?.destroy()
@@ -121,12 +210,19 @@ watch(
   videoEl,
   (element) => {
     loesePlayer()
-    if (element) player = new Plyr(element, OPTIONEN)
+    if (!element) return
+    player = new Plyr(element, OPTIONEN)
+    hefteFortschrittAn(player)
   },
   { flush: 'post' },
 )
 
-onBeforeUnmount(loesePlayer)
+onBeforeUnmount(() => {
+  // Beim Verlassen der Seite den Stand noch mitnehmen — der Zehn-Sekunden-Takt
+  // hätte ihn sonst unter Umständen noch nicht gemeldet.
+  if (player && auth.isAuthenticated && !player.ended) melde(player.currentTime, erledigt.value)
+  loesePlayer()
+})
 </script>
 
 <template>
@@ -139,7 +235,17 @@ onBeforeUnmount(loesePlayer)
           <h1 class="t-h2">{{ video.titel }}</h1>
           <p v-if="video.untertitel" class="t-subhead">{{ video.untertitel }}</p>
         </div>
-        <GButton variant="outline" size="sm" :to="{ name: 'home' }">Zur Übersicht</GButton>
+        <div class="kopf-aktionen">
+          <GButton
+            v-if="auth.isAuthenticated"
+            :variant="erledigt ? 'primary' : 'outline'"
+            size="sm"
+            @click="erledigtUmschalten"
+          >
+            {{ erledigt ? '✓ Erledigt' : 'Als erledigt markieren' }}
+          </GButton>
+          <GButton variant="outline" size="sm" :to="{ name: 'home' }">Zur Übersicht</GButton>
+        </div>
       </header>
 
       <!-- Der eigentliche Schutz ist die Berechtigungsprüfung im Stream;
@@ -166,7 +272,37 @@ onBeforeUnmount(loesePlayer)
         </p>
       </div>
 
-      <p v-if="video.beschreibung" class="beschreibung">{{ video.beschreibung }}</p>
+      <div class="unten">
+        <div v-if="video.beschreibung" class="anleitung">
+          <h2 class="t-eyebrow">So geht die Übung</h2>
+          <p class="beschreibung">{{ video.beschreibung }}</p>
+        </div>
+
+        <aside class="steckbrief">
+          <h2 class="t-eyebrow">Auf einen Blick</h2>
+          <dl class="werte">
+            <div v-if="video.bereich"><dt>Bereich</dt><dd>{{ video.bereich }}</dd></div>
+            <div v-if="video.schwierigkeit">
+              <dt>Schwierigkeit</dt><dd>{{ video.schwierigkeit }}</dd>
+            </div>
+            <div v-if="video.dauer"><dt>Dauer</dt><dd>{{ video.dauer }}</dd></div>
+            <div><dt>Hilfsmittel</dt><dd>{{ video.hilfsmittel || 'keine' }}</dd></div>
+          </dl>
+
+          <label v-if="video.datei" class="schleife">
+            <input v-model="wiederholen" type="checkbox" />
+            In Schleife wiederholen
+          </label>
+
+          <GButton
+            v-if="naechste"
+            variant="dark"
+            :to="{ name: 'video', params: { id: naechste.id } }"
+          >
+            Nächste Übung →
+          </GButton>
+        </aside>
+      </div>
 
       <p class="meta t-meta">
         {{ [...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen].join(' · ')
@@ -211,6 +347,12 @@ onBeforeUnmount(loesePlayer)
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.kopf-aktionen {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .state {
@@ -290,11 +432,83 @@ onBeforeUnmount(loesePlayer)
   margin-top: 8px;
 }
 
+/*
+ * Anleitung und Steckbrief nebeneinander: beim Üben schaut man auf das Video
+ * und liest daneben mit, statt darunter zu scrollen. Unter 900 px stapelt es.
+ */
+.unten {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .unten {
+    grid-template-columns: 1fr;
+  }
+}
+
+.anleitung {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .beschreibung {
   font-size: var(--fs-body);
   line-height: 1.7;
   color: var(--c-text-dark);
   max-width: 70ch;
+}
+
+.steckbrief {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 20px;
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+}
+
+.werte {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.werte > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--fs-secondary);
+}
+
+.werte dt {
+  color: var(--c-text-muted);
+}
+
+.werte dd {
+  margin: 0;
+  font-weight: 500;
+  text-align: right;
+}
+
+.schleife {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: var(--fs-secondary);
+}
+
+.schleife input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--c-action);
 }
 
 .meta {

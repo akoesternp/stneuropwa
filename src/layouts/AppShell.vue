@@ -3,11 +3,13 @@ import { RouterLink, RouterView, useRouter } from 'vue-router'
 import GButton from '@/components/ui/GButton.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 
 const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
+const fortschritt = useFortschrittStore()
 
 /**
  * Nach der Abmeldung entscheidet wieder der Server, was sichtbar ist —
@@ -15,6 +17,7 @@ const videos = useVideosStore()
  */
 async function logout() {
   await auth.logout()
+  fortschritt.verwerfen()
   await videos.reload()
   router.push({ name: 'home' })
 }

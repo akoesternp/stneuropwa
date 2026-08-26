@@ -28,6 +28,10 @@ const props = withDefaults(
     gesperrt?: boolean
     /** Noch keine Videodatei hinterlegt. */
     ohneDatei?: boolean
+    /** Angesehener Anteil 0…1 — als Balken am unteren Rand des Bildes. */
+    anteil?: number
+    /** Übung als erledigt abgehakt. */
+    erledigt?: boolean
   }>(),
   {
     untertitel: '',
@@ -37,6 +41,8 @@ const props = withDefaults(
     marken: () => [],
     gesperrt: false,
     ohneDatei: false,
+    anteil: 0,
+    erledigt: false,
   },
 )
 
@@ -94,8 +100,16 @@ const thumbStyle = computed(() => ({
         </svg>
       </span>
 
+      <span v-if="erledigt" class="haken" title="Erledigt">✓</span>
+
       <span v-if="ohneDatei" class="marke-ecke demnaechst">Demnächst</span>
       <span v-else-if="dauer" class="marke-ecke dauer">{{ dauer }}</span>
+
+      <!-- Der Balken sitzt am Bildrand statt im Text: dort erzählt er auf
+           einen Blick, ohne eine weitere Zeile zu beanspruchen. -->
+      <span v-if="anteil > 0.01 && !erledigt" class="balken">
+        <span class="balken-fuellung" :style="{ width: `${Math.min(100, anteil * 100)}%` }" />
+      </span>
     </div>
 
     <div class="meta">
@@ -184,6 +198,35 @@ const thumbStyle = computed(() => ({
 
 .marke-ecke.demnaechst {
   background: rgba(0, 0, 0, 0.4);
+}
+
+.haken {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--c-positive);
+  color: var(--c-white);
+  font-size: 15px;
+  line-height: 26px;
+  text-align: center;
+}
+
+.balken {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.balken-fuellung {
+  display: block;
+  height: 100%;
+  background: var(--c-action);
 }
 
 .meta {

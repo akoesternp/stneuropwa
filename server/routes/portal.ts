@@ -1,9 +1,15 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Router } from 'express'
-import { darfVideoSehen, paketInhalte, sichtbareVideos } from '../db.js'
+import {
+  darfVideoSehen,
+  leseFortschritt,
+  paketInhalte,
+  sichtbareVideos,
+  speichereFortschritt,
+} from '../db.js'
 import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
-import { currentSession } from '../sessions.js'
+import { currentSession, requireUser } from '../sessions.js'
 import { formatiereDauer, parseDauer } from '../videodauer.js'
 
 /**
@@ -53,6 +59,41 @@ portalRouter.get('/pakete', async (req, res) => {
       }
     }),
   })
+})
+
+/**
+ * Der Trainingsfortschritt des angemeldeten Nutzers.
+ *
+ * Nur mit Anmeldung — ohne Konto gibt es niemanden, dem ein Stand gehören
+ * könnte. Der Nutzer bekommt immer nur den eigenen: die Benutzer-ID stammt
+ * aus der Sitzung, nie aus der Anfrage.
+ */
+portalRouter.get('/fortschritt', requireUser, async (req, res) => {
+  res.json({ fortschritt: await leseFortschritt(Number(req.session!.subject)) })
+})
+
+portalRouter.put('/fortschritt/:videoId', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const videoId = Number(req.params.videoId)
+
+  /*
+   * Nur für Videos, die dieser Nutzer sehen darf. Sonst ließe sich über die
+   * Fortschrittstabelle herausfinden, welche IDs es überhaupt gibt.
+   */
+  if (!Number.isInteger(videoId) || !(await darfVideoSehen(videoId, benutzerId))) {
+    res.status(404).json({ error: 'Video nicht gefunden.' })
+    return
+  }
+
+  const position = Number(req.body?.position)
+  await speichereFortschritt(
+    benutzerId,
+    videoId,
+    Number.isFinite(position) ? position : 0,
+    req.body?.erledigt === true,
+  )
+
+  res.json({ ok: true })
 })
 
 /**

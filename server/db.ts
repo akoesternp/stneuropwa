@@ -1,7 +1,7 @@
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
 import { BEREICHE, SCHWIERIGKEITEN } from '../shared/types.js'
-import type { BenutzerEintrag, Paket, Video } from '../shared/types.js'
+import type { BenutzerEintrag, Fortschritt, Paket, Video } from '../shared/types.js'
 
 /**
  * MariaDB als Datenhaltung für alles, was das Portal besitzt und beschreibt:
@@ -202,6 +202,23 @@ async function createSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
 
+    /*
+     * Fortschritt je Nutzer und Video. Bewusst kein FOREIGN KEY: die Zeilen
+     * sind Beiwerk, und ein gelöschtes Video soll nicht am Fortschritt
+     * scheitern — verwaiste Zeilen räumt deleteVideo mit weg.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS fortschritt (
+        benutzer_id INT UNSIGNED NOT NULL,
+        video_id INT UNSIGNED NOT NULL,
+        position INT NOT NULL DEFAULT 0,
+        erledigt TINYINT(1) NOT NULL DEFAULT 0,
+        aktualisiert_am BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (benutzer_id, video_id),
+        KEY ix_zuletzt (benutzer_id, aktualisiert_am)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
     await conn.query(
       `CREATE TABLE IF NOT EXISTS admins (
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -387,6 +404,7 @@ export async function deleteBenutzer(id: number): Promise<void> {
     await conn.beginTransaction()
     await conn.query('DELETE FROM benutzer_pakete WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM benutzer_videos WHERE benutzer_id = ?', [id])
+    await conn.query('DELETE FROM fortschritt WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM benutzer WHERE id = ?', [id])
     await conn.commit()
   } catch (cause) {
@@ -662,6 +680,7 @@ export async function deleteVideo(id: number): Promise<void> {
     await conn.beginTransaction()
     await conn.query('DELETE FROM benutzer_videos WHERE video_id = ?', [id])
     await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [id])
+    await conn.query('DELETE FROM fortschritt WHERE video_id = ?', [id])
     await conn.query('DELETE FROM videos WHERE id = ?', [id])
     await conn.commit()
   } catch (cause) {
@@ -734,6 +753,47 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         hatDatei: String(zeile.datei ?? '') !== '',
       })),
   }))
+}
+
+/* ── Fortschritt ───────────────────────────────────────────────────────── */
+
+/** Der ganze Stand eines Nutzers — klein genug, um ihn am Stück zu laden. */
+export async function leseFortschritt(benutzerId: number): Promise<Fortschritt[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT video_id, position, erledigt, aktualisiert_am
+     FROM fortschritt WHERE benutzer_id = ? ORDER BY aktualisiert_am DESC`,
+    [benutzerId],
+  )
+
+  return rows.map((row) => ({
+    videoId: Number(row.video_id),
+    position: Number(row.position) || 0,
+    erledigt: Number(row.erledigt) === 1,
+    aktualisiertAm: Number(row.aktualisiert_am) || 0,
+  }))
+}
+
+/**
+ * Schreibt den Stand einer Übung. Der Player meldet sich im Takt von ein paar
+ * Sekunden — deshalb ein einzelnes Upsert statt eines Lese-Schreib-Umwegs.
+ */
+export async function speichereFortschritt(
+  benutzerId: number,
+  videoId: number,
+  position: number,
+  erledigt: boolean,
+): Promise<void> {
+  await ensureReady()
+  await getPool().query(
+    `INSERT INTO fortschritt (benutzer_id, video_id, position, erledigt, aktualisiert_am)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       position = VALUES(position),
+       erledigt = VALUES(erledigt),
+       aktualisiert_am = VALUES(aktualisiert_am)`,
+    [benutzerId, videoId, Math.max(0, Math.round(position)), erledigt ? 1 : 0, Date.now()],
+  )
 }
 
 /* ── Backend-Zugänge ───────────────────────────────────────────────────── */

@@ -102,6 +102,22 @@ export interface PaketInhalt extends Paket {
   gesamtdauer: string
 }
 
+/**
+ * Wie weit ein Nutzer bei einer Übung ist.
+ *
+ * `position` ist der Stand in Sekunden, damit die Wiedergabe dort weitergeht,
+ * wo sie unterbrochen wurde. `erledigt` setzt der Player am Ende selbst, lässt
+ * sich aber auch von Hand umschalten — man macht eine Übung auch mal, ohne
+ * das Video bis zum Schluss laufen zu lassen.
+ */
+export interface Fortschritt {
+  videoId: number
+  position: number
+  erledigt: boolean
+  /** Zeitstempel der letzten Änderung — bestimmt die Reihenfolge in „Weiterschauen". */
+  aktualisiertAm: number
+}
+
 /** Ein angemeldeter Nutzer, wie ihn /api/auth/me liefert. */
 export interface Benutzer {
   id: number
