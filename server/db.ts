@@ -1,5 +1,6 @@
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
+import { BEREICHE, SCHWIERIGKEITEN } from '../shared/types.js'
 import type { BenutzerEintrag, Paket, Video } from '../shared/types.js'
 
 /**
@@ -106,6 +107,9 @@ async function createSchema(): Promise<void> {
         dauer VARCHAR(16) NOT NULL DEFAULT '',
         datei VARCHAR(255) NOT NULL DEFAULT '',
         oeffentlich TINYINT(1) NOT NULL DEFAULT 0,
+        bereich VARCHAR(64) NOT NULL DEFAULT '',
+        schwierigkeit VARCHAR(16) NOT NULL DEFAULT '',
+        hilfsmittel VARCHAR(255) NOT NULL DEFAULT '',
         sortierung INT NOT NULL DEFAULT 0,
         aktiv TINYINT(1) NOT NULL DEFAULT 1,
         PRIMARY KEY (id)
@@ -124,6 +128,16 @@ async function createSchema(): Promise<void> {
     }
     if (!spalten.some((spalte) => spalte.Field === 'beschreibung')) {
       await conn.query(`ALTER TABLE videos ADD COLUMN beschreibung TEXT NOT NULL AFTER untertitel`)
+    }
+    // Merkmale der Übung — leer heißt schlicht „nicht gepflegt".
+    for (const [name, typ] of [
+      ['bereich', "VARCHAR(64) NOT NULL DEFAULT ''"],
+      ['schwierigkeit', "VARCHAR(16) NOT NULL DEFAULT ''"],
+      ['hilfsmittel', "VARCHAR(255) NOT NULL DEFAULT ''"],
+    ] as const) {
+      if (!spalten.some((spalte) => spalte.Field === name)) {
+        await conn.query(`ALTER TABLE videos ADD COLUMN ${name} ${typ}`)
+      }
     }
 
     /* Ein Video kann in mehreren Paketen liegen; kein Eintrag = öffentlich. */
@@ -449,7 +463,8 @@ export async function deletePaket(id: number): Promise<'ok' | 'videos' | 'benutz
 /* ── Videos ────────────────────────────────────────────────────────────── */
 
 const VIDEO_SPALTEN =
-  'v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei, v.oeffentlich, v.sortierung, v.aktiv'
+  `v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei, v.oeffentlich,
+   v.bereich, v.schwierigkeit, v.hilfsmittel, v.sortierung, v.aktiv`
 
 /**
  * Die Sichtbarkeitsregel für einen angemeldeten Nutzer: öffentlich (in keinem
@@ -494,6 +509,13 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     paketNamen: [],
     datei: String(row.datei ?? ''),
     oeffentlich: Number(row.oeffentlich) === 1,
+    // Ein Wert, den die Liste nicht kennt, gilt als nicht gesetzt — sonst
+    // stünde in einem Filter ein Eintrag, den niemand mehr vergeben kann.
+    bereich: BEREICHE.includes(String(row.bereich ?? '') as never) ? String(row.bereich) : '',
+    schwierigkeit: SCHWIERIGKEITEN.includes(String(row.schwierigkeit ?? '') as never)
+      ? String(row.schwierigkeit)
+      : '',
+    hilfsmittel: String(row.hilfsmittel ?? ''),
     sortierung: Number(row.sortierung) || 0,
     aktiv: Number(row.aktiv) === 1,
   }))
@@ -597,15 +619,21 @@ export async function saveVideo(
     let videoId: number
     if (id === null) {
       const result = await conn.query(
-        'INSERT INTO videos (titel, untertitel, beschreibung, dauer, datei, oeffentlich, sortierung, aktiv) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0, daten.sortierung, daten.aktiv ? 1 : 0],
+        `INSERT INTO videos (titel, untertitel, beschreibung, dauer, datei, oeffentlich,
+                             bereich, schwierigkeit, hilfsmittel, sortierung, aktiv)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0,
+         daten.bereich, daten.schwierigkeit, daten.hilfsmittel, daten.sortierung, daten.aktiv ? 1 : 0],
       )
       videoId = Number(result.insertId)
     } else {
       videoId = id
       await conn.query(
-        'UPDATE videos SET titel = ?, untertitel = ?, beschreibung = ?, dauer = ?, datei = ?, oeffentlich = ?, sortierung = ?, aktiv = ? WHERE id = ?',
-        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0, daten.sortierung, daten.aktiv ? 1 : 0, id],
+        `UPDATE videos SET titel = ?, untertitel = ?, beschreibung = ?, dauer = ?, datei = ?,
+           oeffentlich = ?, bereich = ?, schwierigkeit = ?, hilfsmittel = ?, sortierung = ?, aktiv = ?
+         WHERE id = ?`,
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.oeffentlich ? 1 : 0,
+         daten.bereich, daten.schwierigkeit, daten.hilfsmittel, daten.sortierung, daten.aktiv ? 1 : 0, id],
       )
     }
 
@@ -660,6 +688,8 @@ export async function paketInhalte(benutzerId: number | null): Promise<
       untertitel: string
       beschreibung: string
       dauer: string
+      bereich: string
+      schwierigkeit: string
       freigeschaltet: boolean
       hatDatei: boolean
     }[]
@@ -676,6 +706,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
 
   const zeilen: Record<string, unknown>[] = await getPool().query(
     `SELECT vp.paket_id, v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei,
+            v.bereich, v.schwierigkeit,
             ${benutzerId === null ? OEFFENTLICH : SICHTBAR_FUER_NUTZER} AS freigeschaltet
      FROM video_pakete vp
      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
@@ -696,6 +727,8 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         untertitel: String(zeile.untertitel ?? ''),
         beschreibung: String(zeile.beschreibung ?? ''),
         dauer: String(zeile.dauer ?? ''),
+        bereich: String(zeile.bereich ?? ''),
+        schwierigkeit: String(zeile.schwierigkeit ?? ''),
         freigeschaltet: Number(zeile.freigeschaltet) === 1,
         // Nur ob eine Datei hinterlegt ist — der Dateiname bleibt intern.
         hatDatei: String(zeile.datei ?? '') !== '',

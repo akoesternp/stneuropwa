@@ -4,6 +4,7 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
+import { BEREICHE, SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   deleteAdmin,
@@ -358,12 +359,23 @@ adminRouter.put('/videos', async (req, res) => {
     if (sekunden !== null) dauer = formatiereDauer(sekunden)
   }
 
+  /*
+   * Nur bekannte Werte übernehmen. Ein Tippfehler oder ein veralteter Wert
+   * aus einer älteren Fassung landete sonst als eigener Filtereintrag in der
+   * Oberfläche — leer heißt schlicht „nicht gepflegt".
+   */
+  const ausListe = (wert: unknown, erlaubt: readonly string[]) =>
+    erlaubt.includes(String(wert ?? '')) ? String(wert) : ''
+
   const videoId = await saveVideo(id, {
     titel,
     untertitel: String(body.untertitel ?? ''),
     beschreibung: String(body.beschreibung ?? ''),
     dauer,
     oeffentlich: body.oeffentlich === true,
+    bereich: ausListe(body.bereich, BEREICHE),
+    schwierigkeit: ausListe(body.schwierigkeit, SCHWIERIGKEITEN),
+    hilfsmittel: String(body.hilfsmittel ?? '').trim().slice(0, 255),
     paketIds: gewuenschtePakete,
     datei,
     sortierung: Number(body.sortierung) || 0,

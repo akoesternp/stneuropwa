@@ -51,6 +51,11 @@ watch(
           :untertitel="video.untertitel"
           :beschreibung="video.beschreibung"
           :dauer="video.dauer"
+          :merkmale="[
+            video.bereich,
+            video.schwierigkeit,
+            video.hilfsmittel ? `Hilfsmittel: ${video.hilfsmittel}` : '',
+          ].filter(Boolean)"
           :marken="[...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen]"
           :ohne-datei="!video.datei"
         />

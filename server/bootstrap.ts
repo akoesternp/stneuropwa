@@ -82,17 +82,19 @@ async function seedBeispieldaten(log: (message: string) => void): Promise<void> 
    * öffentlich UND in einem Paket — so sind beide Fälle von Anfang an
    * sichtbar. Der letzte Wert je Zeile ist der Öffentlich-Schalter.
    */
-  const kacheln: [string, string, string, string, number[], boolean][] = [
-    ['Willkommen', 'Was Sie hier erwartet', 'Ein kurzer Überblick über das Portal und die Inhalte, die Sie hier finden.', '02:15', [], true],
-    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', 'Anmeldung, Pakete und Wiedergabe — alles Wichtige einmal durchgegangen.', '03:10', [], true],
-    ['Erste Schritte', 'Grundlagen, Teil 1', 'Die Grundbegriffe von Anfang an erklärt, ohne Vorwissen nachvollziehbar.', '12:30', [grundlagen], false],
-    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', 'Baut auf Teil 1 auf und ordnet die Begriffe in den größeren Zusammenhang ein.', '14:05', [grundlagen], false],
-    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', 'Ein durchgerechnetes Beispiel aus der Praxis, Schritt für Schritt.', '18:40', [aufbau], false],
-    ['Praxisbeispiel B', 'Schnupperfolge — im Paket und zugleich frei', 'Zweites Praxisbeispiel mit abweichender Ausgangslage — zeigt die Unterschiede.', '21:12', [grundlagen, aufbau], true],
+  const kacheln: [string, string, string, string, number[], boolean, string, string, string][] = [
+    ['Willkommen', 'Was Sie hier erwartet', 'Ein kurzer Überblick über das Portal und die Inhalte, die Sie hier finden.', '02:15', [], true, '', '', ''],
+    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', 'Anmeldung, Pakete und Wiedergabe — alles Wichtige einmal durchgegangen.', '03:10', [], true, '', '', ''],
+    ['Erste Schritte', 'Grundlagen, Teil 1', 'Die Grundbegriffe von Anfang an erklärt, ohne Vorwissen nachvollziehbar.', '12:30', [grundlagen], false, 'Augen', 'leicht', 'keine'],
+    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', 'Baut auf Teil 1 auf und ordnet die Begriffe in den größeren Zusammenhang ein.', '14:05', [grundlagen], false, 'Vestibulär', 'mittel', 'Stuhl'],
+    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', 'Ein durchgerechnetes Beispiel aus der Praxis, Schritt für Schritt.', '18:40', [aufbau], false, 'Propriozeption', 'mittel', 'Ball'],
+    ['Praxisbeispiel B', 'Schnupperfolge — im Paket und zugleich frei', 'Zweites Praxisbeispiel mit abweichender Ausgangslage — zeigt die Unterschiede.', '21:12', [grundlagen, aufbau], true, 'Koordination', 'schwer', 'Ball, Brille'],
   ]
 
   let sortierung = 1
-  for (const [titel, untertitel, beschreibung, dauer, paketIds, oeffentlich] of kacheln) {
+  for (const [
+    titel, untertitel, beschreibung, dauer, paketIds, oeffentlich, bereich, schwierigkeit, hilfsmittel,
+  ] of kacheln) {
     await saveVideo(null, {
       titel,
       untertitel,
@@ -100,6 +102,9 @@ async function seedBeispieldaten(log: (message: string) => void): Promise<void> 
       dauer,
       paketIds,
       oeffentlich,
+      bereich,
+      schwierigkeit,
+      hilfsmittel,
       datei: '',
       sortierung: sortierung++,
       aktiv: true,

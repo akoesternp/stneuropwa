@@ -6,6 +6,28 @@
  * auch nicht gehasht.
  */
 
+/**
+ * Trainingsbereiche der Neuroathletik. Feste Liste statt Freitext, damit sich
+ * danach filtern lässt — bei Freitext stünden nach einem halben Jahr
+ * „Vestibulär", „vestibulaer" und „Gleichgewicht" nebeneinander.
+ *
+ * Erweitern ist unkritisch: unbekannte Werte in der Datenbank behandelt der
+ * Server wie „nicht gesetzt".
+ */
+export const BEREICHE = [
+  'Augen',
+  'Vestibulär',
+  'Propriozeption',
+  'Atmung',
+  'Koordination',
+  'Mobilität',
+] as const
+export type Bereich = (typeof BEREICHE)[number]
+
+/** Aufsteigend — die Reihenfolge bestimmt auch die Anzeige der Filter. */
+export const SCHWIERIGKEITEN = ['leicht', 'mittel', 'schwer'] as const
+export type Schwierigkeit = (typeof SCHWIERIGKEITEN)[number]
+
 /** Ein Paket bündelt Videos; Nutzern werden Pakete zugewiesen. */
 export interface Paket {
   id: number
@@ -37,6 +59,12 @@ export interface Video {
   paketIds: number[]
   /** Ohne Anmeldung sichtbar — unabhängig von den Paketen. */
   oeffentlich: boolean
+  /** Trainingsbereich, '' wenn nicht gesetzt. */
+  bereich: string
+  /** 'leicht' | 'mittel' | 'schwer', '' wenn nicht gesetzt. */
+  schwierigkeit: string
+  /** Benötigte Hilfsmittel als Freitext, z. B. "Brille, Ball". */
+  hilfsmittel: string
   /** Paketnamen zum Anzeigen auf der Kachel, vom Server aufgelöst. */
   paketNamen: string[]
   /**
@@ -63,6 +91,8 @@ export interface PaketInhalt extends Paket {
     untertitel: string
     beschreibung: string
     dauer: string
+    bereich: string
+    schwierigkeit: string
     /** Darf der aktuelle Aufrufer dieses Video abspielen? */
     freigeschaltet: boolean
     /** Liegt überhaupt schon eine Videodatei vor? Der Name bleibt intern. */

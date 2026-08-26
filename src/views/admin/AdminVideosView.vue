@@ -5,6 +5,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import { bildAlsVorschaubild, erzeugeVorschaubild } from '@/utils/vorschaubild'
+import { BEREICHE, SCHWIERIGKEITEN } from '@shared/types'
 import type { Column, Paket, Video } from '@/types'
 
 /**
@@ -30,6 +31,9 @@ interface Editor {
   dauer: string
   paketIds: number[]
   oeffentlich: boolean
+  bereich: string
+  schwierigkeit: string
+  hilfsmittel: string
   datei: string
   sortierung: string
   aktiv: boolean
@@ -80,6 +84,7 @@ const columns: Column[] = [
   { label: 'Titel', width: 'minmax(180px,1fr)' },
   { label: 'Untertitel', width: 'minmax(150px,0.9fr)' },
   { label: 'Dauer', width: '80px' },
+  { label: 'Bereich', width: 'minmax(120px,0.6fr)' },
   { label: 'Sichtbar über', width: 'minmax(150px,0.9fr)' },
   { label: 'Datei', width: 'minmax(150px,0.8fr)' },
   { label: 'Status', width: '90px' },
@@ -87,6 +92,16 @@ const columns: Column[] = [
 ]
 
 const isNew = computed(() => editing.value !== null && editing.value.id === null)
+
+/** '' als erste Wahl — nicht jedes Video ist eine Übung mit Merkmalen. */
+const bereichOptions: readonly [string, string][] = [
+  ['', 'ohne Zuordnung'],
+  ...BEREICHE.map((b): [string, string] => [b, b]),
+]
+const schwierigkeitOptions: readonly [string, string][] = [
+  ['', 'ohne Angabe'],
+  ...SCHWIERIGKEITEN.map((g): [string, string] => [g, g]),
+]
 
 /**
  * Bereits anderweitig verknüpfte Dateien bleiben wählbar (zwei Kacheln auf
@@ -135,6 +150,9 @@ function startNew() {
     dauer: '',
     paketIds: [],
     oeffentlich: false,
+    bereich: '',
+    schwierigkeit: '',
+    hilfsmittel: '',
     datei: '',
     sortierung: '0',
     aktiv: true,
@@ -156,6 +174,9 @@ function startEdit(row: Video) {
     dauer: row.dauer,
     paketIds: [...row.paketIds],
     oeffentlich: row.oeffentlich,
+    bereich: row.bereich,
+    schwierigkeit: row.schwierigkeit,
+    hilfsmittel: row.hilfsmittel,
     datei: row.datei,
     sortierung: String(row.sortierung),
     aktiv: row.aktiv,
@@ -387,6 +408,9 @@ async function save() {
       dauer: editing.value.dauer,
       paketIds: editing.value.paketIds,
       oeffentlich: editing.value.oeffentlich,
+      bereich: editing.value.bereich,
+      schwierigkeit: editing.value.schwierigkeit,
+      hilfsmittel: editing.value.hilfsmittel,
       datei: editing.value.datei,
       sortierung: Number(editing.value.sortierung) || 0,
       aktiv: editing.value.aktiv,
@@ -578,6 +602,26 @@ async function remove(row: Video) {
           compact
         />
         <GField v-model="editing.sortierung" label="Sortierung" type="number" compact />
+        <GField
+          v-model="editing.bereich"
+          as="select"
+          label="Bereich"
+          :options="bereichOptions"
+          compact
+        />
+        <GField
+          v-model="editing.schwierigkeit"
+          as="select"
+          label="Schwierigkeit"
+          :options="schwierigkeitOptions"
+          compact
+        />
+        <GField
+          v-model="editing.hilfsmittel"
+          label="Hilfsmittel"
+          placeholder="z. B. Brille, Ball — leer = keine"
+          compact
+        />
       </div>
 
       <!--
@@ -642,11 +686,14 @@ async function remove(row: Video) {
       </div>
     </dialog>
 
-    <DataTable :columns="columns" :rows="rows" row-key="id" min-width="1200px">
+    <DataTable :columns="columns" :rows="rows" row-key="id" min-width="1330px">
       <template #row="{ row }">
         <span class="name t-truncate">{{ row.titel }}</span>
         <span class="muted t-truncate">{{ row.untertitel || '—' }}</span>
         <span class="muted">{{ row.dauer || '—' }}</span>
+        <span class="muted t-truncate">
+          {{ [row.bereich, row.schwierigkeit].filter(Boolean).join(' · ') || '—' }}
+        </span>
         <span class="muted t-truncate">
           {{
             [...(row.oeffentlich ? ['Öffentlich'] : []), ...row.paketNamen].join(', ') ||

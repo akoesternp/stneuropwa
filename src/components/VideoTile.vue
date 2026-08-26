@@ -20,6 +20,8 @@ const props = withDefaults(
     untertitel?: string
     beschreibung?: string
     dauer?: string
+    /** Bereich, Schwierigkeit, Hilfsmittel — knappe Metazeile unter dem Titel. */
+    merkmale?: string[]
     /** Paketnamen o. Ä. als kleine Marken unter dem Text. */
     marken?: string[]
     /** Nicht freigeschaltet: keine Verknüpfung, Schloss-Marke. */
@@ -31,6 +33,7 @@ const props = withDefaults(
     untertitel: '',
     beschreibung: '',
     dauer: '',
+    merkmale: () => [],
     marken: () => [],
     gesperrt: false,
     ohneDatei: false,
@@ -98,6 +101,7 @@ const thumbStyle = computed(() => ({
     <div class="meta">
       <h3 class="titel t-h3">{{ titel }}</h3>
       <p v-if="untertitel" class="untertitel">{{ untertitel }}</p>
+      <p v-if="merkmale.length" class="merkmale t-meta">{{ merkmale.join(' · ') }}</p>
       <p v-if="beschreibung" class="beschreibung">{{ beschreibung }}</p>
 
       <span v-if="marken.length || gesperrt" class="marken">
@@ -194,6 +198,12 @@ const thumbStyle = computed(() => ({
   font-size: var(--fs-secondary);
   color: var(--c-text-muted);
   line-height: 1.5;
+}
+
+/* Bewusst eine Textzeile statt weiterer Chips — die Kachel trägt unten schon
+   die Paketmarken, und zwei Chip-Reihen übereinander erschlagen den Titel. */
+.merkmale {
+  color: var(--c-action);
 }
 
 /*
