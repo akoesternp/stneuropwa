@@ -1,7 +1,7 @@
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
-import { BEREICHE, SCHWIERIGKEITEN } from '../shared/types.js'
-import type { BenutzerEintrag, Fortschritt, Paket, Video } from '../shared/types.js'
+import { SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
+import type { Bereich, BenutzerEintrag, Fortschritt, Paket, Video } from '../shared/types.js'
 
 /**
  * MariaDB als Datenhaltung für alles, was das Portal besitzt und beschreibt:
@@ -139,6 +139,21 @@ async function createSchema(): Promise<void> {
         await conn.query(`ALTER TABLE videos ADD COLUMN ${name} ${typ}`)
       }
     }
+
+    /*
+     * Die Trainingsbereiche. In videos.bereich steht der NAME, nicht eine ID:
+     * das hält die Abfragen einfach, und das Umbenennen zieht der Server über
+     * alle Videos nach (siehe saveBereich).
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS bereiche (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name VARCHAR(64) NOT NULL,
+        sortierung INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
 
     /* Ein Video kann in mehreren Paketen liegen; kein Eintrag = öffentlich. */
     await conn.query(
@@ -527,9 +542,7 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     paketNamen: [],
     datei: String(row.datei ?? ''),
     oeffentlich: Number(row.oeffentlich) === 1,
-    // Ein Wert, den die Liste nicht kennt, gilt als nicht gesetzt — sonst
-    // stünde in einem Filter ein Eintrag, den niemand mehr vergeben kann.
-    bereich: BEREICHE.includes(String(row.bereich ?? '') as never) ? String(row.bereich) : '',
+    bereich: String(row.bereich ?? ''),
     schwierigkeit: SCHWIERIGKEITEN.includes(String(row.schwierigkeit ?? '') as never)
       ? String(row.schwierigkeit)
       : '',
@@ -753,6 +766,98 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         hatDatei: String(zeile.datei ?? '') !== '',
       })),
   }))
+}
+
+/* ── Bereiche ──────────────────────────────────────────────────────────── */
+
+export async function listBereiche(): Promise<Bereich[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    'SELECT id, name, sortierung FROM bereiche ORDER BY sortierung, name',
+  )
+  return rows.map((row) => ({
+    id: Number(row.id),
+    name: String(row.name),
+    sortierung: Number(row.sortierung) || 0,
+  }))
+}
+
+/** Legt die mitgelieferten Bereiche an, solange noch keine gepflegt sind. */
+export async function seedBereiche(): Promise<boolean> {
+  await ensureReady()
+  if ((await listBereiche()).length) return false
+
+  await getPool().batch(
+    'INSERT INTO bereiche (name, sortierung) VALUES (?, ?)',
+    STANDARD_BEREICHE.map((name, stelle) => [name, stelle + 1]),
+  )
+  return true
+}
+
+/**
+ * Anlegen oder Umbenennen. Beim Umbenennen ziehen die Videos mit — in
+ * videos.bereich steht der Name, und ohne diesen Durchgriff verlören alle
+ * betroffenen Videos ihre Zuordnung stillschweigend.
+ */
+export async function saveBereich(
+  id: number | null,
+  name: string,
+  sortierung: number,
+): Promise<number> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    if (id === null) {
+      const ergebnis = await conn.query(
+        'INSERT INTO bereiche (name, sortierung) VALUES (?, ?)',
+        [name, sortierung],
+      )
+      await conn.commit()
+      return Number(ergebnis.insertId)
+    }
+
+    const [alt]: { name: string }[] = await conn.query(
+      'SELECT name FROM bereiche WHERE id = ?',
+      [id],
+    )
+    await conn.query('UPDATE bereiche SET name = ?, sortierung = ? WHERE id = ?', [
+      name,
+      sortierung,
+      id,
+    ])
+    if (alt && alt.name !== name) {
+      await conn.query('UPDATE videos SET bereich = ? WHERE bereich = ?', [name, alt.name])
+    }
+
+    await conn.commit()
+    return id
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/** Löschen nur, solange kein Video daran hängt — sonst wäre es stiller Datenverlust. */
+export async function deleteBereich(id: number): Promise<'ok' | 'nicht-gefunden' | 'in-benutzung'> {
+  await ensureReady()
+  const [treffer]: { name: string }[] = await getPool().query(
+    'SELECT name FROM bereiche WHERE id = ?',
+    [id],
+  )
+  if (!treffer) return 'nicht-gefunden'
+
+  const [benutzt]: { anzahl: number }[] = await getPool().query(
+    'SELECT COUNT(*) anzahl FROM videos WHERE bereich = ?',
+    [treffer.name],
+  )
+  if (Number(benutzt?.anzahl)) return 'in-benutzung'
+
+  await getPool().query('DELETE FROM bereiche WHERE id = ?', [id])
+  return 'ok'
 }
 
 /* ── Fortschritt ───────────────────────────────────────────────────────── */

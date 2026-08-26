@@ -5,7 +5,8 @@ import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import { bildAlsVorschaubild, erzeugeVorschaubild } from '@/utils/vorschaubild'
-import { BEREICHE, SCHWIERIGKEITEN } from '@shared/types'
+import { SCHWIERIGKEITEN } from '@shared/types'
+import type { Bereich } from '@shared/types'
 import type { Column, Paket, Video } from '@/types'
 
 /**
@@ -22,6 +23,7 @@ interface Datei {
 const rows = ref<Video[]>([])
 const pakete = ref<Paket[]>([])
 const dateien = ref<Datei[]>([])
+const bereiche = ref<Bereich[]>([])
 
 interface Editor {
   id: number | null
@@ -94,10 +96,10 @@ const columns: Column[] = [
 const isNew = computed(() => editing.value !== null && editing.value.id === null)
 
 /** '' als erste Wahl — nicht jedes Video ist eine Übung mit Merkmalen. */
-const bereichOptions: readonly [string, string][] = [
+const bereichOptions = computed<readonly [string, string][]>(() => [
   ['', 'ohne Zuordnung'],
-  ...BEREICHE.map((b): [string, string] => [b, b]),
-]
+  ...bereiche.value.map((bereich): [string, string] => [bereich.name, bereich.name]),
+])
 const schwierigkeitOptions: readonly [string, string][] = [
   ['', 'ohne Angabe'],
   ...SCHWIERIGKEITEN.map((g): [string, string] => [g, g]),
@@ -126,10 +128,11 @@ const dateiOptions = computed<readonly [string, string][]>(() => {
 })
 
 async function load() {
-  ;[rows.value, pakete.value, dateien.value] = await Promise.all([
+  ;[rows.value, pakete.value, dateien.value, bereiche.value] = await Promise.all([
     api.get<Video[]>('/admin/videos'),
     api.get<Paket[]>('/admin/pakete'),
     api.get<{ dateien: Datei[] }>('/admin/video-dateien').then((r) => r.dateien),
+    api.get<Bereich[]>('/admin/bereiche'),
   ])
 }
 

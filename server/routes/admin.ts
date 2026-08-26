@@ -4,20 +4,23 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
-import { BEREICHE, SCHWIERIGKEITEN } from '../../shared/types.js'
+import { SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   deleteAdmin,
+  deleteBereich,
   deleteBenutzer,
   deletePaket,
   deleteVideo,
   findAdmin,
   findBenutzerById,
   listAdmins,
+  listBereiche,
   listBenutzer,
   listPakete,
   listVideos,
   saveBenutzer,
+  saveBereich,
   savePaket,
   saveVideo,
   upsertAdmin,
@@ -174,6 +177,51 @@ adminRouter.delete('/pakete/:id', async (req, res) => {
   if (ergebnis === 'benutzer') {
     res.status(409).json({
       error: 'Dieses Paket ist noch Nutzern zugewiesen. Bitte zuerst die Zuweisungen entfernen.',
+    })
+    return
+  }
+
+  res.json({ ok: true })
+})
+
+// ── Trainingsbereiche ──────────────────────────────────────────────────────
+
+adminRouter.get('/bereiche', async (_req, res) => {
+  res.json(await listBereiche())
+})
+
+adminRouter.put('/bereiche', async (req, res) => {
+  const body = req.body ?? {}
+  const id = body.id == null ? null : Number(body.id)
+  const name = String(body.name ?? '').trim().slice(0, 64)
+
+  if (!name) {
+    res.status(400).json({ error: 'Der Name ist Pflicht.' })
+    return
+  }
+
+  try {
+    const bereichId = await saveBereich(id, name, Number(body.sortierung) || 0)
+    res.json({ id: bereichId })
+  } catch (cause) {
+    if (istDuplikat(cause)) {
+      res.status(409).json({ error: 'Einen Bereich mit diesem Namen gibt es bereits.' })
+      return
+    }
+    throw cause
+  }
+})
+
+adminRouter.delete('/bereiche/:id', async (req, res) => {
+  const ergebnis = await deleteBereich(Number(req.params.id))
+
+  if (ergebnis === 'nicht-gefunden') {
+    res.status(404).json({ error: 'Bereich nicht gefunden.' })
+    return
+  }
+  if (ergebnis === 'in-benutzung') {
+    res.status(409).json({
+      error: 'Diesem Bereich sind noch Videos zugeordnet. Bitte dort zuerst umtragen.',
     })
     return
   }
@@ -367,13 +415,15 @@ adminRouter.put('/videos', async (req, res) => {
   const ausListe = (wert: unknown, erlaubt: readonly string[]) =>
     erlaubt.includes(String(wert ?? '')) ? String(wert) : ''
 
+  const bekannteBereiche = (await listBereiche()).map((bereich) => bereich.name)
+
   const videoId = await saveVideo(id, {
     titel,
     untertitel: String(body.untertitel ?? ''),
     beschreibung: String(body.beschreibung ?? ''),
     dauer,
     oeffentlich: body.oeffentlich === true,
-    bereich: ausListe(body.bereich, BEREICHE),
+    bereich: ausListe(body.bereich, bekannteBereiche),
     schwierigkeit: ausListe(body.schwierigkeit, SCHWIERIGKEITEN),
     hilfsmittel: String(body.hilfsmittel ?? '').trim().slice(0, 255),
     paketIds: gewuenschtePakete,

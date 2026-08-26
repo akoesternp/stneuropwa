@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
-import { BEREICHE, SCHWIERIGKEITEN } from '@shared/types'
+import { SCHWIERIGKEITEN } from '@shared/types'
 import type { Video } from '@/types'
 
 /**
@@ -224,7 +224,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
 
       <div class="chips">
         <button
-          v-for="bereich in BEREICHE"
+          v-for="bereich in videos.bereiche"
           :key="bereich"
           type="button"
           class="chip"
@@ -270,11 +270,8 @@ const abschnitte = computed<Abschnitt[]>(() => {
             :untertitel="video.untertitel"
             :beschreibung="video.beschreibung"
             :dauer="video.dauer"
-            :merkmale="[
-              video.bereich,
-              video.schwierigkeit,
-              video.hilfsmittel ? `Hilfsmittel: ${video.hilfsmittel}` : '',
-            ].filter(Boolean)"
+            :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
+            :hilfsmittel="video.hilfsmittel"
             :marken="[...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen]"
             :ohne-datei="!video.datei"
             :anteil="anteil(video)"
@@ -296,7 +293,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
               :titel="video.titel"
               :untertitel="video.untertitel"
               :dauer="video.dauer"
-              :merkmale="[video.bereich, video.schwierigkeit].filter(Boolean)"
+              :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
               :ohne-datei="!video.datei"
               :anteil="anteil(video)"
             />
@@ -335,11 +332,8 @@ const abschnitte = computed<Abschnitt[]>(() => {
               :untertitel="video.untertitel"
               :beschreibung="video.beschreibung"
               :dauer="video.dauer"
-              :merkmale="[
-                video.bereich,
-                video.schwierigkeit,
-                video.hilfsmittel ? `Hilfsmittel: ${video.hilfsmittel}` : '',
-              ].filter(Boolean)"
+              :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
+              :hilfsmittel="video.hilfsmittel"
               :marken="video.oeffentlich && abschnitt.paketId ? ['Frei verfügbar'] : []"
               :ohne-datei="!video.datei"
               :anteil="anteil(video)"

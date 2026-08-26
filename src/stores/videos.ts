@@ -9,13 +9,16 @@ import type { Video } from '@/types'
  */
 export const useVideosStore = defineStore('videos', () => {
   const videos = ref<Video[]>([])
+  /** Die gepflegten Trainingsbereiche — Reihenfolge wie im Backend. */
+  const bereiche = ref<string[]>([])
   const loaded = ref(false)
   const error = ref<string | null>(null)
 
   async function reload(): Promise<void> {
     try {
-      const result = await api.get<{ videos: Video[] }>('/portal/videos')
+      const result = await api.get<{ videos: Video[]; bereiche: string[] }>('/portal/videos')
       videos.value = result.videos
+      bereiche.value = result.bereiche ?? []
       error.value = null
     } catch {
       error.value = 'Die Inhalte konnten nicht geladen werden. Bitte später erneut versuchen.'
@@ -28,5 +31,5 @@ export const useVideosStore = defineStore('videos', () => {
     if (!loaded.value) await reload()
   }
 
-  return { videos, loaded, error, reload, ensureLoaded }
+  return { videos, bereiche, loaded, error, reload, ensureLoaded }
 })

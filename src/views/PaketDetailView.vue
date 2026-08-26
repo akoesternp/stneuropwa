@@ -90,7 +90,7 @@ function anteil(videoId: number, dauer: string): number {
           :untertitel="video.untertitel"
           :beschreibung="video.beschreibung"
           :dauer="video.dauer"
-          :merkmale="[video.bereich, video.schwierigkeit].filter(Boolean)"
+          :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
           :gesperrt="!video.freigeschaltet"
           :ohne-datei="!video.hatDatei"
           :anteil="anteil(video.id, video.dauer)"

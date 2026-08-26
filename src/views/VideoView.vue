@@ -24,6 +24,9 @@ const fortschritt = useFortschrittStore()
 
 onMounted(() => {
   void videos.ensureLoaded()
+  // Ohne das bleibt der Stand beim direkten Aufruf dieser Seite leer — und
+  // damit gäbe es nichts, wohin fortgesetzt werden könnte.
+  if (auth.isAuthenticated && !fortschritt.loaded) void fortschritt.reload()
 })
 
 const video = computed(() =>
@@ -152,6 +155,15 @@ const REST_S = 10
 
 let letzteMeldung = 0
 
+/*
+ * Fortsetzen braucht zweierlei: die Metadaten des Videos und den gespeicherten
+ * Stand. Beide treffen unabhängig voneinander ein — je nachdem, ob die Seite
+ * direkt aufgerufen oder von der Übersicht aus betreten wurde. Deshalb wird
+ * nach jedem der beiden Ereignisse geprüft, ob nun beides da ist.
+ */
+let metadatenDa = false
+let fortgesetzt = false
+
 const videoId = computed(() => Number(route.params.id))
 const stand = computed(() => fortschritt.fuer(videoId.value))
 const erledigt = computed(() => stand.value?.erledigt ?? false)
@@ -167,18 +179,27 @@ function erledigtUmschalten() {
   melde(erledigt.value ? (player?.currentTime ?? 0) : 0, !erledigt.value)
 }
 
+/** Springt einmalig an die gespeicherte Stelle, sobald beides vorliegt. */
+function versucheFortsetzen(instanz: Plyr) {
+  if (fortgesetzt || !metadatenDa || !fortschritt.loaded) return
+  fortgesetzt = true
+
+  const position = stand.value?.position ?? 0
+  const dauer = instanz.duration || 0
+
+  // Nicht wieder aufnehmen, wenn es fast schon durch war — sonst landet man
+  // im Abspann und muss von Hand zurückspulen.
+  if (position > MINDEST_POSITION_S && (!dauer || position < dauer - REST_S)) {
+    instanz.currentTime = position
+  }
+}
+
 function hefteFortschrittAn(instanz: Plyr) {
   if (!auth.isAuthenticated) return
 
   instanz.on('loadedmetadata', () => {
-    const position = stand.value?.position ?? 0
-    const dauer = instanz.duration || 0
-
-    // Nicht wieder aufnehmen, wenn es fast schon durch war — sonst landet man
-    // im Abspann und muss von Hand zurückspulen.
-    if (position > MINDEST_POSITION_S && (!dauer || position < dauer - REST_S)) {
-      instanz.currentTime = position
-    }
+    metadatenDa = true
+    versucheFortsetzen(instanz)
   })
 
   instanz.on('timeupdate', () => {
@@ -210,11 +231,20 @@ watch(
   videoEl,
   (element) => {
     loesePlayer()
+    metadatenDa = false
+    fortgesetzt = false
     if (!element) return
     player = new Plyr(element, OPTIONEN)
     hefteFortschrittAn(player)
   },
   { flush: 'post' },
+)
+
+watch(
+  () => fortschritt.loaded,
+  () => {
+    if (player) versucheFortsetzen(player)
+  },
 )
 
 onBeforeUnmount(() => {

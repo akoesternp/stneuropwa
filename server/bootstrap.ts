@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import {
   findAdmin,
+  seedBereiche,
   listAdmins,
   listPakete,
   listVideos,
@@ -137,6 +138,7 @@ async function ensureVideoDir(log: (message: string) => void): Promise<void> {
 
 export async function bootstrap(log: (message: string) => void = console.log): Promise<void> {
   await ensureVideoDir(log)
+  if (await seedBereiche()) log('  Trainingsbereiche angelegt (im Backend änderbar)')
   await ensureAdmin(log)
   await resetAdminPassword(log)
   await seedBeispieldaten(log)

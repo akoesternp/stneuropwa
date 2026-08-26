@@ -20,8 +20,10 @@ const props = withDefaults(
     untertitel?: string
     beschreibung?: string
     dauer?: string
-    /** Bereich, Schwierigkeit, Hilfsmittel — knappe Metazeile unter dem Titel. */
-    merkmale?: string[]
+    /** Bereich und Schwierigkeit — als Chips, wie in der Filterleiste. */
+    kategorien?: string[]
+    /** Benötigte Hilfsmittel — knappe Metazeile, kein Chip. */
+    hilfsmittel?: string
     /** Paketnamen o. Ä. als kleine Marken unter dem Text. */
     marken?: string[]
     /** Nicht freigeschaltet: keine Verknüpfung, Schloss-Marke. */
@@ -37,7 +39,8 @@ const props = withDefaults(
     untertitel: '',
     beschreibung: '',
     dauer: '',
-    merkmale: () => [],
+    kategorien: () => [],
+    hilfsmittel: '',
     marken: () => [],
     gesperrt: false,
     ohneDatei: false,
@@ -115,7 +118,14 @@ const thumbStyle = computed(() => ({
     <div class="meta">
       <h3 class="titel t-h3">{{ titel }}</h3>
       <p v-if="untertitel" class="untertitel">{{ untertitel }}</p>
-      <p v-if="merkmale.length" class="merkmale t-meta">{{ merkmale.join(' · ') }}</p>
+      <!--
+        Dieselbe Form wie die Filterknöpfe auf der Startseite: so ist auf einen
+        Blick zu sehen, worüber sich diese Übung finden lässt.
+      -->
+      <span v-if="kategorien.length" class="kategorien">
+        <span v-for="wert in kategorien" :key="wert" class="kategorie">{{ wert }}</span>
+      </span>
+      <p v-if="hilfsmittel" class="merkmale t-meta">Hilfsmittel: {{ hilfsmittel }}</p>
       <p v-if="beschreibung" class="beschreibung">{{ beschreibung }}</p>
 
       <span v-if="marken.length || gesperrt" class="marken">
@@ -243,10 +253,24 @@ const thumbStyle = computed(() => ({
   line-height: 1.5;
 }
 
-/* Bewusst eine Textzeile statt weiterer Chips — die Kachel trägt unten schon
-   die Paketmarken, und zwei Chip-Reihen übereinander erschlagen den Titel. */
-.merkmale {
+.kategorien {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.kategorie {
+  padding: 2px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  font-family: var(--font-num);
+  font-size: var(--fs-meta);
   color: var(--c-action);
+}
+
+.merkmale {
+  color: var(--c-text-muted);
 }
 
 /*

@@ -14,7 +14,15 @@
  * Erweitern ist unkritisch: unbekannte Werte in der Datenbank behandelt der
  * Server wie „nicht gesetzt".
  */
-export const BEREICHE = [
+/** Ein Trainingsbereich, im Backend pflegbar. */
+export interface Bereich {
+  id: number
+  name: string
+  sortierung: number
+}
+
+/** Nur noch die Erstbefüllung — gepflegt wird die Liste danach im Backend. */
+export const STANDARD_BEREICHE = [
   'Augen',
   'Vestibulär',
   'Propriozeption',
@@ -22,7 +30,6 @@ export const BEREICHE = [
   'Koordination',
   'Mobilität',
 ] as const
-export type Bereich = (typeof BEREICHE)[number]
 
 /** Aufsteigend — die Reihenfolge bestimmt auch die Anzeige der Filter. */
 export const SCHWIERIGKEITEN = ['leicht', 'mittel', 'schwer'] as const

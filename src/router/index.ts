@@ -40,6 +40,11 @@ const router = createRouter({
           component: () => import('@/views/admin/AdminVideosView.vue'),
         },
         {
+          path: 'bereiche',
+          name: 'admin-bereiche',
+          component: () => import('@/views/admin/AdminBereicheView.vue'),
+        },
+        {
           path: 'zugaenge',
           name: 'admin-zugaenge',
           component: () => import('@/views/admin/AdminZugaengeView.vue'),
