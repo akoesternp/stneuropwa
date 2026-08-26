@@ -60,6 +60,8 @@ const streamUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/
         </p>
       </div>
 
+      <p v-if="video.beschreibung" class="beschreibung">{{ video.beschreibung }}</p>
+
       <p class="meta t-meta">
         {{ video.paketNamen.length ? video.paketNamen.join(' · ') : 'Frei verfügbar'
         }}<template v-if="video.dauer"> · {{ video.dauer }}</template>
@@ -139,6 +141,13 @@ const streamUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/
   display: flex;
   gap: 12px;
   margin-top: 8px;
+}
+
+.beschreibung {
+  font-size: var(--fs-body);
+  line-height: 1.7;
+  color: var(--c-text-dark);
+  max-width: 70ch;
 }
 
 .meta {

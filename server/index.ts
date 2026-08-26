@@ -37,6 +37,14 @@ const app = express()
 
 app.disable('x-powered-by')
 app.use(express.json({ limit: '1mb' }))
+
+/*
+ * Vorschaubilder kommen roh, nicht als Formular — das spart eine Abhängigkeit
+ * zum Zerlegen von multipart und die Aufblähung durch Base64. Videodateien
+ * laufen NICHT hierüber: die nimmt der Upload-Endpunkt als Datenstrom
+ * entgegen, damit sie nie vollständig im Speicher landen.
+ */
+app.use(express.raw({ type: 'image/jpeg', limit: '4mb' }))
 app.use(cookieParser)
 
 app.use('/api/auth', authRouter)

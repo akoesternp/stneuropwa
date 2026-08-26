@@ -2,6 +2,7 @@ node_modules/
 dist/
 server-dist/
 server/videos/
+server/vorschaubilder/
 dist-ssr/
 *.local
 .DS_Store

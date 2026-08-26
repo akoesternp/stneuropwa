@@ -16,6 +16,17 @@ export default defineConfig({
          * Daten.
          */
         navigateFallbackDenylist: [/^\/api\//],
+
+        /*
+         * Nach einem Deploy tragen die Dateien neue Namen. Ohne diese drei
+         * Einstellungen behielte der alte Service Worker das alte index.html
+         * im Zwischenspeicher und verwiese auf Dateien, die es nicht mehr
+         * gibt — die Anwendung lädt dann, aber jeder Seitenwechsel läuft ins
+         * Leere.
+         */
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
       },
       manifest: {
         name: 'stneuro Videoportal',

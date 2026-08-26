@@ -41,7 +41,7 @@ async function logout() {
     <header class="header">
       <div class="inner">
         <div class="brand">
-          <GLogo :width="96" :height="40" tone="light" />
+          <GLogo :width="115" :height="40" tone="light" />
           <span class="eyebrow">Verwaltung</span>
         </div>
 

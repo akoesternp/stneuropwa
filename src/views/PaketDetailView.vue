@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePaketeStore } from '@/stores/pakete'
 
 /**
- * Das Inhaltsverzeichnis eines Pakets: alle Titel mit Laufzeit, auch ohne
- * Anmeldung. Abspielbar sind nur die Einträge mit `freigeschaltet` — die
- * übrigen bleiben Text, der Stream-Endpunkt gäbe sie ohnehin nicht heraus.
+ * Der Inhalt eines Pakets als Kachel-Übersicht, wie auf der Startseite.
+ *
+ * Titel, Untertitel und Beschreibung stehen an jeder Kachel — auch an den
+ * gesperrten: sie sagen, worum es in dem Video geht, ohne etwas preiszugeben.
+ * Abspielbar sind nur die freigeschalteten; die übrigen sind keine Links, und
+ * der Stream-Endpunkt gäbe sie ohnehin nicht heraus.
  */
 const route = useRoute()
 const auth = useAuthStore()
@@ -19,6 +23,7 @@ onMounted(() => {
   void pakete.ensureLoaded()
 })
 
+// Mit der Sitzung ändert sich, was als freigeschaltet gilt.
 watch(
   () => auth.isAuthenticated,
   () => void pakete.reload(),
@@ -51,36 +56,25 @@ const offeneAnzahl = computed(
               v-if="paket.gesamtdauer"
             >
               · {{ paket.gesamtdauer }} Gesamtlaufzeit</template
-            >
+            ><template v-if="offeneAnzahl"> · {{ offeneAnzahl }} gesperrt</template>
           </p>
         </div>
         <span v-if="hatPaket" class="marke frei">Freigeschaltet</span>
       </header>
 
-      <ol v-if="paket.videos.length" class="liste">
-        <li v-for="(video, index) in paket.videos" :key="video.id" class="zeile">
-          <span class="nummer t-meta">{{ String(index + 1).padStart(2, '0') }}</span>
-
-          <RouterLink
-            v-if="video.freigeschaltet"
-            :to="{ name: 'video', params: { id: video.id } }"
-            class="titel-link"
-          >
-            <span class="titel">{{ video.titel }}</span>
-            <span v-if="video.untertitel" class="untertitel">{{ video.untertitel }}</span>
-          </RouterLink>
-
-          <span v-else class="titel-link gesperrt">
-            <span class="titel">{{ video.titel }}</span>
-            <span v-if="video.untertitel" class="untertitel">{{ video.untertitel }}</span>
-          </span>
-
-          <span v-if="!video.freigeschaltet" class="schloss t-meta" title="Nicht freigeschaltet"
-            >gesperrt</span
-          >
-          <span class="dauer t-meta">{{ video.dauer || '–' }}</span>
-        </li>
-      </ol>
+      <div v-if="paket.videos.length" class="grid">
+        <VideoTile
+          v-for="video in paket.videos"
+          :id="video.id"
+          :key="video.id"
+          :titel="video.titel"
+          :untertitel="video.untertitel"
+          :beschreibung="video.beschreibung"
+          :dauer="video.dauer"
+          :gesperrt="!video.freigeschaltet"
+          :ohne-datei="!video.hatDatei"
+        />
+      </div>
 
       <p v-else class="state">In diesem Paket sind noch keine Videos enthalten.</p>
 
@@ -113,7 +107,6 @@ const offeneAnzahl = computed(
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  max-width: 900px;
 }
 
 .head {
@@ -128,6 +121,7 @@ const offeneAnzahl = computed(
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-width: 70ch;
 }
 
 .zurueck {
@@ -160,72 +154,11 @@ const offeneAnzahl = computed(
   color: var(--c-red);
 }
 
-.liste {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--c-hairline);
-  border-radius: var(--r-card);
-  background: var(--c-white);
-  overflow: hidden;
-}
-
-.zeile {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 22px;
-  border-bottom: 1px solid var(--c-hairline-3);
-}
-
-.zeile:last-child {
-  border-bottom: 0;
-}
-
-.nummer {
-  flex: none;
-  width: 24px;
-}
-
-.titel-link {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--c-text);
-}
-
-.titel-link:hover {
-  color: var(--c-action);
-  text-decoration: none;
-}
-
-/* Gesperrte Titel bleiben lesbar, sind aber sichtbar kein Link. */
-.gesperrt {
-  color: var(--c-text-muted);
-  cursor: default;
-}
-
-.titel {
-  font-size: var(--fs-body);
-  font-weight: 500;
-}
-
-.untertitel {
-  font-size: var(--fs-secondary);
-  color: var(--c-text-muted);
-}
-
-.schloss,
-.dauer {
-  flex: none;
-}
-
-.schloss {
-  padding: 2px 10px;
-  border-radius: var(--r-pill);
-  background: var(--c-surface);
+/* Dasselbe Raster wie auf der Startseite. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 22px;
 }
 
 .cta {
@@ -239,6 +172,7 @@ const offeneAnzahl = computed(
   font-size: var(--fs-secondary);
   line-height: 1.6;
   color: var(--c-on-dark);
+  max-width: 70ch;
 }
 
 .missing {

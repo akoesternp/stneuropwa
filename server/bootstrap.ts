@@ -9,7 +9,7 @@ import {
   upsertAdmin,
 } from './db.js'
 import { hashPassword, verifyPassword } from './passwords.js'
-import { VIDEO_DIR } from './paths.js'
+import { THUMB_DIR, VIDEO_DIR } from './paths.js'
 
 /**
  * Standardpasswort der Ersteinrichtung. Steht in der Anleitung — solange es
@@ -79,20 +79,21 @@ async function seedBeispieldaten(log: (message: string) => void): Promise<void> 
 
   // Das letzte Beispiel liegt bewusst in beiden Paketen — so ist die
   // Mehrfachzuordnung von Anfang an sichtbar.
-  const kacheln: [string, string, string, number[]][] = [
-    ['Willkommen', 'Was Sie hier erwartet', '02:15', []],
-    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', '03:10', []],
-    ['Erste Schritte', 'Grundlagen, Teil 1', '12:30', [grundlagen]],
-    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', '14:05', [grundlagen]],
-    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', '18:40', [aufbau]],
-    ['Praxisbeispiel B', 'In beiden Paketen enthalten', '21:12', [grundlagen, aufbau]],
+  const kacheln: [string, string, string, string, number[]][] = [
+    ['Willkommen', 'Was Sie hier erwartet', 'Ein kurzer Überblick über das Portal und die Inhalte, die Sie hier finden.', '02:15', []],
+    ['So funktioniert das Portal', 'Ein Rundgang in drei Minuten', 'Anmeldung, Pakete und Wiedergabe — alles Wichtige einmal durchgegangen.', '03:10', []],
+    ['Erste Schritte', 'Grundlagen, Teil 1', 'Die Grundbegriffe von Anfang an erklärt, ohne Vorwissen nachvollziehbar.', '12:30', [grundlagen]],
+    ['Aufbau und Vertiefung', 'Grundlagen, Teil 2', 'Baut auf Teil 1 auf und ordnet die Begriffe in den größeren Zusammenhang ein.', '14:05', [grundlagen]],
+    ['Praxisbeispiel A', 'Aufbaukurs, Teil 1', 'Ein durchgerechnetes Beispiel aus der Praxis, Schritt für Schritt.', '18:40', [aufbau]],
+    ['Praxisbeispiel B', 'In beiden Paketen enthalten', 'Zweites Praxisbeispiel mit abweichender Ausgangslage — zeigt die Unterschiede.', '21:12', [grundlagen, aufbau]],
   ]
 
   let sortierung = 1
-  for (const [titel, untertitel, dauer, paketIds] of kacheln) {
+  for (const [titel, untertitel, beschreibung, dauer, paketIds] of kacheln) {
     await saveVideo(null, {
       titel,
       untertitel,
+      beschreibung,
       dauer,
       paketIds,
       datei: '',
@@ -116,6 +117,12 @@ async function ensureVideoDir(log: (message: string) => void): Promise<void> {
     log(`Videoverzeichnis: ${VIDEO_DIR}`)
   } catch {
     log(`⚠ Videoverzeichnis ${VIDEO_DIR} fehlt und ließ sich nicht anlegen — Streams laufen ins Leere.`)
+  }
+
+  try {
+    await mkdir(THUMB_DIR, { recursive: true })
+  } catch {
+    log(`⚠ Verzeichnis für Vorschaubilder ${THUMB_DIR} ließ sich nicht anlegen.`)
   }
 }
 

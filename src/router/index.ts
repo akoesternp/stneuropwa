@@ -119,4 +119,48 @@ router.beforeEach((to) => {
   return true
 })
 
+/**
+ * Ein fehlgeschlagener Nachlade-Import darf keine tote Oberfläche hinterlassen.
+ *
+ * Die Ansichten werden einzeln nachgeladen. Zeigt ein zwischengespeichertes
+ * index.html noch auf Dateinamen einer älteren Fassung (typisch nach einem
+ * Deploy, wenn der Service Worker den alten Stand hält), scheitert dieser
+ * Import — der Router bricht die Navigation dann still ab, und ein Klick auf
+ * den Reiter tut scheinbar gar nichts.
+ *
+ * Statt dessen wird die Seite einmal richtig geladen; damit holt der Browser
+ * index.html samt der dazu passenden Dateinamen neu.
+ */
+const NEULADEN_SCHLUESSEL = 'stneuro.nachladen-gescheitert'
+
+function merker(): Storage | null {
+  // Im privaten Modus kann schon der Zugriff werfen.
+  try {
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+router.onError((fehler, ziel) => {
+  const meldung = String((fehler as Error)?.message ?? '')
+  const nachladenGescheitert =
+    /dynamically imported module|Importing a module script failed|Unable to preload/i.test(meldung)
+
+  if (!nachladenGescheitert) return
+
+  // Nur einmal je Ziel — fehlt die Datei wirklich, drehte sich die Seite sonst
+  // endlos im Kreis.
+  const speicher = merker()
+  if (speicher?.getItem(NEULADEN_SCHLUESSEL) === ziel.fullPath) return
+  speicher?.setItem(NEULADEN_SCHLUESSEL, ziel.fullPath)
+
+  window.location.assign(ziel.fullPath)
+})
+
+// Hat es geklappt, darf ein späterer Fehlschlag wieder neu laden dürfen.
+router.afterEach(() => {
+  merker()?.removeItem(NEULADEN_SCHLUESSEL)
+})
+
 export default router

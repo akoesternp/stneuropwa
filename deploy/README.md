@@ -21,7 +21,7 @@ außerhalb der Datenbank.
 
 ```bash
 adduser --system --group --home /opt/stneuro --shell /usr/sbin/nologin stneuro
-mkdir -p /opt/stneuro /var/lib/stneuro/videos
+mkdir -p /opt/stneuro /var/lib/stneuro/videos /var/lib/stneuro/vorschaubilder
 chown -R stneuro:stneuro /opt/stneuro /var/lib/stneuro
 chmod 750 /var/lib/stneuro
 ```
@@ -91,6 +91,7 @@ PORT=3001
 HOST=127.0.0.1
 SECURE_COOKIES=1
 VIDEO_DIR=/var/lib/stneuro/videos
+THUMB_DIR=/var/lib/stneuro/vorschaubilder
 ADMIN_USER=admin
 ADMIN_PASSWORD=<einmalig ein langes Passwort>
 DB_HOST=127.0.0.1
@@ -238,12 +239,56 @@ bzw. Einzelfreischaltung). Es gibt **keinen** direkten Apache-Pfad auf das
 Verzeichnis — den darf es auch nie geben, sonst wäre die Freischaltung
 wirkungslos.
 
+## Vorschaubilder
+
+Jede Kachel zeigt ein Einzelbild aus dem Video (Vorgabe: Sekunde 3). Erzeugt
+wird es **im Browser der Verwaltung** — beim Hochladen automatisch, für per
+SFTP abgelegte Dateien über „Aus Video erzeugen" in der Videomaske. Der
+Server bekommt nur das fertige JPEG und legt es unter der Video-ID in
+`THUMB_DIR` ab.
+
+Deshalb braucht der Server **kein ffmpeg**: ein Einzelbild aus einem Video zu
+holen hieße, den Datenstrom zu decodieren — der Browser hat diesen Decoder
+ohnehin, sonst könnte er das Video nicht abspielen.
+
+Die Bilder sind absichtlich **öffentlich** (`/api/portal/videos/:id/thumb`,
+ohne Berechtigungsprüfung): sie stehen auch an gesperrten Kacheln, so wie
+Titel und Laufzeit, und beschreiben das Angebot. Fehlt ein Bild, antwortet
+der Endpunkt mit 404 und die Kachel fällt auf ihren Farbverlauf zurück.
+
+Ist der Anfang eines Videos schwarz, lässt sich in der Videomaske eine andere
+Sekunde wählen und das Bild neu erzeugen. Alternativ nimmt die Maske auch ein
+selbst gewähltes Bild entgegen (PNG, WebP oder JPEG — sie rechnet es um).
+
+### Nichts wird von der Platte gelöscht
+
+Ein Video hat genau **eine** Datei. Solange eine verknüpft ist, bietet die
+Maske weder Upload noch Auswahl an — erst „Entfernen" macht den Platz wieder
+frei.
+
+Weder „Entfernen" noch das Löschen eines Videos fasst die Dateien in
+`VIDEO_DIR` an; sie bleiben liegen und lassen sich erneut auswählen.
+Vorschaubilder ebenso: beim Löschen eines Videos wird das Bild lediglich nach
+`geloescht-<id>-<zeitstempel>.jpg` umbenannt. Das Umbenennen ist nötig, weil
+die Dateien nach der Video-ID heißen und InnoDB den AUTO_INCREMENT-Zähler
+nach einem Neustart auf `MAX(id)+1` zurücksetzt — ein später angelegtes Video
+könnte sonst dieselbe ID und damit stillschweigend das fremde Bild bekommen.
+
+Aufräumen ist damit Handarbeit — bewusst so: was einmal mühsam per SFTP
+hochgeladen wurde, soll kein Fehlklick kosten.
+
+```bash
+# Vorschaubilder abgekoppelter Videos ansehen und ggf. wegräumen
+ls -lh /var/lib/stneuro/vorschaubilder/geloescht-*.jpg
+```
+
 ## Sicherung
 
 Die **Datenbank** sichert `deploy/backup.sh` nach `/var/backups/stneuro/`
 (Zugangsdaten liest es aus `/etc/stneuro.env`, alte Stände räumt es nach 14
 Tagen selbst weg). Die **Videodateien** sind bewusst nicht dabei — 1 TB
-täglich zu dumpen wäre Unsinn. Wenn die Originale nicht ohnehin anderswo
+täglich zu dumpen wäre Unsinn. Die **Vorschaubilder** ebenso wenig: sie lassen
+sich in der Verwaltung jederzeit neu erzeugen. Wenn die Originale nicht ohnehin anderswo
 liegen, gehört das Verzeichnis in einen separaten rsync-Spiegel:
 
 ```bash

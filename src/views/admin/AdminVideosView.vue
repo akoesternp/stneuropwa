@@ -5,6 +5,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
+import { bildAlsVorschaubild, erzeugeVorschaubild } from '@/utils/vorschaubild'
 import type { Column, Paket, Video } from '@/types'
 
 /**
@@ -26,6 +27,7 @@ interface Editor {
   id: number | null
   titel: string
   untertitel: string
+  beschreibung: string
   dauer: string
   paketIds: number[]
   datei: string
@@ -42,6 +44,37 @@ const error = ref<string | null>(null)
 const uploadName = ref<string | null>(null)
 const uploadAnteil = ref<number | null>(0)
 let uploadAbbrechen: (() => void) | null = null
+
+/**
+ * Das Vorschaubild wird im Browser aus dem Video gezogen. Bei einem neuen
+ * Video gibt es noch keine ID, unter der es abgelegt werden könnte — es
+ * wartet deshalb hier, bis das Speichern die ID geliefert hat.
+ */
+const vorschauBlob = ref<Blob | null>(null)
+const vorschauUrl = ref<string | null>(null)
+const vorschauLaeuft = ref(false)
+/** Sekunde, aus der das Bild stammt — bei einem schwarzen Anfang verstellbar. */
+const vorschauSekunde = ref('3')
+
+/**
+ * Die zuletzt hochgeladene Datei. Sie bleibt greifbar, damit sich das
+ * Vorschaubild auch bei einem noch nicht gespeicherten Video neu erzeugen
+ * lässt — dafür gibt es noch keine ID, über die der Stream ginge.
+ */
+const letzteDatei = ref<File | null>(null)
+
+function setzeVorschau(blob: Blob | null) {
+  if (vorschauUrl.value) URL.revokeObjectURL(vorschauUrl.value)
+  vorschauBlob.value = blob
+  vorschauUrl.value = blob ? URL.createObjectURL(blob) : null
+}
+
+/** Zeitstempel bricht den Zwischenspeicher auf, sonst bliebe das alte Bild stehen. */
+const gespeichertesBild = ref<string | null>(null)
+
+function zeigeGespeichertesBild(id: number) {
+  gespeichertesBild.value = `/api/portal/videos/${id}/thumb?v=${Date.now()}`
+}
 
 const columns: Column[] = [
   { label: 'Titel', width: 'minmax(180px,1fr)' },
@@ -90,10 +123,15 @@ onMounted(load)
 function startNew() {
   notice.value = null
   error.value = null
+  letzteDatei.value = null
+  setzeVorschau(null)
+  gespeichertesBild.value = null
+  vorschauSekunde.value = '3'
   editing.value = {
     id: null,
     titel: '',
     untertitel: '',
+    beschreibung: '',
     dauer: '',
     paketIds: [],
     datei: '',
@@ -105,10 +143,15 @@ function startNew() {
 function startEdit(row: Video) {
   notice.value = null
   error.value = null
+  letzteDatei.value = null
+  setzeVorschau(null)
+  vorschauSekunde.value = '3'
+  zeigeGespeichertesBild(row.id)
   editing.value = {
     id: row.id,
     titel: row.titel,
     untertitel: row.untertitel,
+    beschreibung: row.beschreibung,
     dauer: row.dauer,
     paketIds: [...row.paketIds],
     datei: row.datei,
@@ -149,6 +192,7 @@ async function onUpload(event: Event) {
   error.value = null
   uploadName.value = file.name
   uploadAnteil.value = 0
+  letzteDatei.value = file
 
   try {
     const { versprechen, abbrechen } = api.upload<{ datei: string; dauer: string; groesse: number }>(
@@ -188,6 +232,88 @@ function abbrechenUpload() {
   uploadAbbrechen?.()
 }
 
+/** Steht überhaupt eine Quelle für das Vorschaubild bereit? */
+const vorschauMoeglich = computed(
+  () => Boolean(letzteDatei.value) || Boolean(editing.value?.id && editing.value.datei),
+)
+
+/**
+ * Erzeugt das Vorschaubild — aus der gerade hochgeladenen Datei, sonst aus
+ * der bereits verknüpften über den Verwaltungs-Stream (so auch für Dateien,
+ * die per SFTP hereinkamen). Der Browser liest dabei nur den Dateikopf und
+ * ein Stück um die gesuchte Stelle.
+ */
+/**
+ * Löst die Datei vom Video — der Platz wird wieder frei, die Datei selbst
+ * bleibt in der Ablage. Sie absichtlich NICHT zu löschen ist die
+ * zurückhaltendere Wahl: unter Umständen hängt ein zweites Video daran, und
+ * ein versehentliches Entfernen soll keine Datei kosten, die per SFTP
+ * mühsam hochgeladen wurde.
+ */
+function dateiEntfernen() {
+  if (!editing.value) return
+  editing.value.datei = ''
+  letzteDatei.value = null
+  error.value = null
+  notice.value =
+    'Datei entfernt — mit „Speichern" gilt das Video als ohne Video. Die Datei bleibt in der Ablage.'
+}
+
+/** Ein selbst gewähltes Bild als Vorschaubild übernehmen. */
+async function onBildGewaehlt(event: Event) {
+  const input = event.target as HTMLInputElement
+  const datei = input.files?.[0]
+  input.value = '' // damit dieselbe Datei erneut gewählt werden kann
+  if (!datei) return
+
+  notice.value = null
+  error.value = null
+  vorschauLaeuft.value = true
+  try {
+    setzeVorschau(await bildAlsVorschaubild(datei))
+    notice.value = 'Bild übernommen. Mit „Speichern" wird es gesetzt.'
+  } catch (cause) {
+    error.value =
+      cause instanceof Error ? cause.message : 'Das Bild ließ sich nicht übernehmen.'
+  } finally {
+    vorschauLaeuft.value = false
+  }
+}
+
+async function vorschauAusDatei() {
+  const quelle =
+    letzteDatei.value ??
+    (editing.value?.id && editing.value.datei
+      ? `/api/admin/videos/${editing.value.id}/stream`
+      : null)
+
+  if (!quelle) return
+
+  notice.value = null
+  error.value = null
+  vorschauLaeuft.value = true
+  try {
+    setzeVorschau(await erzeugeVorschaubild(quelle, Number(vorschauSekunde.value) || 3))
+    notice.value = 'Vorschaubild erzeugt. Mit „Speichern" wird es übernommen.'
+  } catch (cause) {
+    error.value =
+      cause instanceof Error ? cause.message : 'Das Vorschaubild ließ sich nicht erzeugen.'
+  } finally {
+    vorschauLaeuft.value = false
+  }
+}
+
+/** Legt das Bild unter der Video-ID ab; Fehler hier sind kein Grund zum Scheitern. */
+async function speichereVorschau(videoId: number): Promise<boolean> {
+  if (!vorschauBlob.value) return false
+  try {
+    await api.upload(`/admin/videos/${videoId}/thumb`, vorschauBlob.value).versprechen
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function save() {
   if (!editing.value) return
   if (!editing.value.titel.trim()) {
@@ -198,18 +324,24 @@ async function save() {
   busy.value = true
   error.value = null
   try {
-    await api.put('/admin/videos', {
+    const ergebnis = await api.put<{ id: number }>('/admin/videos', {
       id: editing.value.id,
       titel: editing.value.titel,
       untertitel: editing.value.untertitel,
+      beschreibung: editing.value.beschreibung,
       dauer: editing.value.dauer,
       paketIds: editing.value.paketIds,
       datei: editing.value.datei,
       sortierung: Number(editing.value.sortierung) || 0,
       aktiv: editing.value.aktiv,
     })
+    const mitBild = await speichereVorschau(ergebnis.id)
+
     await load()
-    notice.value = `${editing.value.titel} gespeichert.`
+    notice.value = mitBild
+      ? `${editing.value.titel} samt Vorschaubild gespeichert.`
+      : `${editing.value.titel} gespeichert.`
+    setzeVorschau(null)
     editing.value = null
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : 'Speichern fehlgeschlagen.'
@@ -254,13 +386,32 @@ async function remove(row: Video) {
       <h3 class="t-h3">{{ isNew ? 'Neues Video' : `Video ${editing.titel}` }}</h3>
 
       <!-- Upload zuerst: bei einem neuen Video füllt er Titel und Dauer gleich mit. -->
+      <!--
+        Ein Video hat genau eine Datei. Solange eine verknüpft ist, gibt es
+        weder Upload noch Auswahl — erst das Entfernen macht den Platz wieder
+        frei. Sonst ließe sich unbemerkt eine zweite hochladen, die dann
+        unbenutzt in der Ablage läge.
+      -->
       <div class="upload">
         <div class="upload-kopf">
-          <span class="t-eyebrow">Videodatei hochladen</span>
+          <span class="t-eyebrow">Videodatei</span>
           <span class="t-meta">MP4, M4V, MOV oder WebM</span>
         </div>
 
-        <template v-if="uploadName">
+        <template v-if="editing.datei && !uploadName">
+          <div class="belegt">
+            <span class="belegt-name t-truncate">{{ editing.datei }}</span>
+            <GButton variant="outline" size="sm" danger :disabled="busy" @click="dateiEntfernen">
+              Entfernen
+            </GButton>
+          </div>
+          <p class="hint">
+            Für eine andere Datei zuerst diese entfernen. Sie bleibt dabei in der Ablage und
+            lässt sich danach wieder auswählen — gelöscht wird nichts.
+          </p>
+        </template>
+
+        <template v-else-if="uploadName">
           <div class="fortschritt">
             <div
               class="balken"
@@ -280,23 +431,63 @@ async function remove(row: Video) {
         <template v-else>
           <input type="file" accept="video/*,.mp4,.m4v,.mov,.webm" @change="onUpload" />
           <p class="hint">
-            Sehr große Dateien gehen zuverlässiger per SFTP in die Ablage — sie erscheinen dann
-            unten in der Auswahl.
+            Sehr große Dateien gehen zuverlässiger per SFTP in die Ablage — sie stehen dann
+            gleich hier in der Auswahl.
           </p>
+          <GField
+            v-model="editing.datei"
+            as="select"
+            label="Oder aus der Ablage wählen"
+            :options="dateiOptions"
+            compact
+            @update:model-value="onDateiGewaehlt"
+          />
         </template>
+      </div>
+
+      <!--
+        Das Bild steht später an jeder Kachel — auch an gesperrten. Es wird im
+        Browser aus dem Video gezogen, der Server bekommt nur das fertige JPEG.
+      -->
+      <div class="vorschau">
+        <div class="vorschau-bild">
+          <img v-if="vorschauUrl" :src="vorschauUrl" alt="Neues Vorschaubild" />
+          <img v-else-if="gespeichertesBild" :src="gespeichertesBild" alt="Vorschaubild" @error="gespeichertesBild = null" />
+          <span v-else class="ohne t-meta">Kein Vorschaubild</span>
+        </div>
+
+        <div class="vorschau-steuerung">
+          <span class="t-eyebrow">Vorschaubild</span>
+          <p class="hint">
+            Aus dem Video an der gewählten Sekunde erzeugen — oder ein eigenes Bild hochladen.
+          </p>
+
+          <div class="vorschau-zeile">
+            <GField v-model="vorschauSekunde" label="Sekunde" type="number" compact />
+            <GButton
+              variant="outline"
+              size="sm"
+              :disabled="!vorschauMoeglich || vorschauLaeuft"
+              @click="vorschauAusDatei"
+            >
+              {{ vorschauLaeuft ? 'Wird erzeugt …' : 'Aus Video erzeugen' }}
+            </GButton>
+          </div>
+
+          <p v-if="!vorschauMoeglich" class="hint">
+            Für „Aus Video erzeugen" erst eine Videodatei hochladen oder auswählen.
+          </p>
+
+          <label class="eigenes">
+            <span class="t-eyebrow">Oder eigenes Bild</span>
+            <input type="file" accept="image/*" :disabled="vorschauLaeuft" @change="onBildGewaehlt" />
+          </label>
+        </div>
       </div>
 
       <div class="fields">
         <GField v-model="editing.titel" label="Titel" compact />
         <GField v-model="editing.untertitel" label="Untertitel" compact />
-        <GField
-          v-model="editing.datei"
-          as="select"
-          label="Videodatei"
-          :options="dateiOptions"
-          compact
-          @update:model-value="onDateiGewaehlt"
-        />
         <GField
           v-model="editing.dauer"
           label="Dauer"
@@ -305,6 +496,18 @@ async function remove(row: Video) {
         />
         <GField v-model="editing.sortierung" label="Sortierung" type="number" compact />
       </div>
+
+      <!--
+        Steht auch an gesperrten Kacheln in der Paketübersicht — der Text soll
+        sagen, worum es geht, ohne den Inhalt vorwegzunehmen.
+      -->
+      <GField
+        v-model="editing.beschreibung"
+        as="textarea"
+        label="Beschreibung (auch bei gesperrten Videos sichtbar)"
+        placeholder="Worum geht es in diesem Video? Zwei bis drei Sätze genügen."
+        compact
+      />
 
       <div class="assign">
         <span class="t-eyebrow">Pakete</span>
@@ -420,6 +623,22 @@ async function remove(row: Video) {
   font-size: var(--fs-secondary);
 }
 
+.belegt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: var(--r-card);
+  background: var(--c-white);
+  border: 1px solid var(--c-hairline);
+}
+
+.belegt-name {
+  font-family: var(--font-num);
+  font-size: var(--fs-secondary);
+}
+
 .fortschritt {
   height: 8px;
   border-radius: var(--r-pill);
@@ -444,6 +663,63 @@ async function remove(row: Video) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.vorschau {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.vorschau-bild {
+  flex: none;
+  width: 240px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  border: 1px solid var(--c-hairline);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vorschau-bild img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vorschau-steuerung {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vorschau-zeile {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vorschau-zeile :deep(.g-field) {
+  width: 110px;
+  flex: none;
+}
+
+.eigenes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.eigenes input {
+  font-size: var(--fs-secondary);
 }
 
 .fields {

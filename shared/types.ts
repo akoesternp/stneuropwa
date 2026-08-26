@@ -25,6 +25,11 @@ export interface Video {
   id: number
   titel: string
   untertitel: string
+  /**
+   * Kurzer beschreibender Text. Steht auch bei gesperrten Videos in der
+   * Paketübersicht — er sagt, worum es geht, ohne etwas preiszugeben.
+   */
+  beschreibung: string
   /** Anzeigetext, z. B. "12:30". Beim Verknüpfen aus der Datei ausgelesen. */
   dauer: string
   /** Pakete, in denen dieses Video liegt. Leer = öffentlich. */
@@ -53,9 +58,12 @@ export interface PaketInhalt extends Paket {
     id: number
     titel: string
     untertitel: string
+    beschreibung: string
     dauer: string
     /** Darf der aktuelle Aufrufer dieses Video abspielen? */
     freigeschaltet: boolean
+    /** Liegt überhaupt schon eine Videodatei vor? Der Name bleibt intern. */
+    hatDatei: boolean
   }[]
   /** Summe der Laufzeiten, z. B. "1:24:10" — leer, wenn eine Dauer fehlt. */
   gesamtdauer: string

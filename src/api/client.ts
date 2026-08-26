@@ -78,7 +78,7 @@ export const api = {
    */
   upload<T>(
     path: string,
-    file: File,
+    file: Blob,
     onFortschritt?: (anteil: number | null) => void,
   ): { versprechen: Promise<T>; abbrechen: () => void } {
     const xhr = new XMLHttpRequest()

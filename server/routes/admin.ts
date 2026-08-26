@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
@@ -22,7 +22,7 @@ import {
   upsertAdmin,
 } from '../db.js'
 import { hashPassword, verifyPassword } from '../passwords.js'
-import { VIDEO_DIR } from '../paths.js'
+import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
 import { destroySessionsFor, requireAdmin } from '../sessions.js'
 import { formatiereDauer, leseDauerSekunden } from '../videodauer.js'
 
@@ -361,6 +361,7 @@ adminRouter.put('/videos', async (req, res) => {
   const videoId = await saveVideo(id, {
     titel,
     untertitel: String(body.untertitel ?? ''),
+    beschreibung: String(body.beschreibung ?? ''),
     dauer,
     paketIds: gewuenschtePakete,
     datei,
@@ -370,8 +371,95 @@ adminRouter.put('/videos', async (req, res) => {
   res.json({ id: videoId, dauer })
 })
 
+/**
+ * Streamt jedes Video für die Verwaltung — unabhängig von Paketen.
+ *
+ * Nötig, damit der Browser das Vorschaubild auch für Dateien erzeugen kann,
+ * die per SFTP hereinkamen: er muss dafür kurz in das Video hineinsehen. Der
+ * Portal-Endpunkt käme dafür nicht in Frage, dessen Regel gilt für Nutzer.
+ * Hier steht bereits requireAdmin davor, und wer die Inhalte verwaltet, darf
+ * sie ohnehin alle sehen.
+ */
+adminRouter.get('/videos/:id/stream', async (req, res) => {
+  const videos = await listVideos()
+  const video = videos.find((eintrag) => eintrag.id === Number(req.params.id))
+
+  if (!video?.datei || video.datei !== basename(video.datei)) {
+    res.status(404).json({ error: 'Video nicht gefunden.' })
+    return
+  }
+
+  const pfad = join(VIDEO_DIR, video.datei)
+  if (!existsSync(pfad)) {
+    res.status(404).json({ error: 'Video nicht gefunden.' })
+    return
+  }
+
+  res.sendFile(pfad)
+})
+
+/**
+ * Nimmt das Vorschaubild entgegen — ein JPEG, das der Browser der Verwaltung
+ * aus dem Video gezogen hat (siehe src/utils/vorschaubild.ts).
+ *
+ * Bewusst im Browser erzeugt und nicht hier: ein Einzelbild aus einem Video
+ * zu holen hieße, den Datenstrom zu decodieren, wofür es ffmpeg auf dem
+ * Server bräuchte. Der Browser kann das Video ohnehin abspielen — er hat den
+ * Decoder schon.
+ */
+adminRouter.post('/videos/:id/thumb', async (req, res) => {
+  const id = Number(req.params.id)
+  const bild = req.body
+
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: 'Unbekanntes Video.' })
+    return
+  }
+  if (!Buffer.isBuffer(bild) || !bild.length) {
+    res.status(400).json({ error: 'Es kam kein Bild an.' })
+    return
+  }
+
+  // JPEG beginnt immer mit FF D8 FF — was anderes gehört hier nicht hin.
+  if (bild[0] !== 0xff || bild[1] !== 0xd8 || bild[2] !== 0xff) {
+    res.status(400).json({ error: 'Das ist kein JPEG.' })
+    return
+  }
+
+  const videos = await listVideos()
+  if (!videos.some((video) => video.id === id)) {
+    res.status(404).json({ error: 'Video nicht gefunden.' })
+    return
+  }
+
+  await mkdir(THUMB_DIR, { recursive: true })
+  await writeFile(join(THUMB_DIR, `${id}.jpg`), bild)
+
+  res.json({ ok: true, groesse: bild.length })
+})
+
 adminRouter.delete('/videos/:id', async (req, res) => {
-  await deleteVideo(Number(req.params.id))
+  const id = Number(req.params.id)
+  await deleteVideo(id)
+
+  /*
+   * Das Vorschaubild wird nur abgekoppelt, nicht gelöscht — auf dem Server
+   * darf es liegen bleiben.
+   *
+   * Umbenannt werden muss es trotzdem: die Datei heißt nach der Video-ID, und
+   * InnoDB setzt den AUTO_INCREMENT-Zähler nach einem Neustart auf MAX(id)+1
+   * zurück. Ein später angelegtes Video könnte also dieselbe ID bekommen —
+   * und hätte dann stillschweigend das Bild seines Vorgängers.
+   */
+  const bild = join(THUMB_DIR, `${id}.jpg`)
+  if (existsSync(bild)) {
+    try {
+      await rename(bild, join(THUMB_DIR, `geloescht-${id}-${Date.now()}.jpg`))
+    } catch (cause) {
+      console.warn(`[Admin] Vorschaubild ${bild} ließ sich nicht abkoppeln:`, cause)
+    }
+  }
+
   res.json({ ok: true })
 })
 

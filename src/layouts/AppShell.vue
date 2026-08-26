@@ -25,7 +25,7 @@ async function logout() {
     <header class="header">
       <div class="header-inner">
         <RouterLink :to="{ name: 'home' }" class="logo-link" aria-label="Zur Startseite">
-          <GLogo :width="108" :height="44" />
+          <GLogo :width="127" :height="44" />
         </RouterLink>
 
         <nav class="nav" aria-label="Hauptnavigation">

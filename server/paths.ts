@@ -31,3 +31,13 @@ export const DIST_DIR = join(PROJECT_ROOT, 'dist')
  * Die Dateien kommen per SFTP/rsync dorthin; die Verwaltung verknüpft sie nur.
  */
 export const VIDEO_DIR = process.env.VIDEO_DIR ?? join(PROJECT_ROOT, 'server', 'videos')
+
+/**
+ * Vorschaubilder, je Video eine JPEG-Datei mit der Video-ID als Namen.
+ *
+ * Erzeugt werden sie im Browser der Verwaltung (ein Einzelbild aus dem Video);
+ * der Server legt sie nur ab. Sie liegen bewusst NICHT in VIDEO_DIR, sonst
+ * tauchten sie in dessen Dateiauswahl auf und wanderten in jede rsync-Kopie
+ * des Videobestands mit.
+ */
+export const THUMB_DIR = process.env.THUMB_DIR ?? join(PROJECT_ROOT, 'server', 'vorschaubilder')

@@ -43,7 +43,17 @@ watch(
 
     <template v-else>
       <div class="grid">
-        <VideoTile v-for="video in videos.videos" :key="video.id" :video="video" />
+        <VideoTile
+          v-for="video in videos.videos"
+          :id="video.id"
+          :key="video.id"
+          :titel="video.titel"
+          :untertitel="video.untertitel"
+          :beschreibung="video.beschreibung"
+          :dauer="video.dauer"
+          :marken="video.paketNamen.length ? video.paketNamen : ['Frei verfügbar']"
+          :ohne-datei="!video.datei"
+        />
 
         <!--
           Für Besucher steht am Ende des Rasters der Grund, sich anzumelden —

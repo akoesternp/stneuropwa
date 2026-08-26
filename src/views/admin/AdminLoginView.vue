@@ -27,7 +27,7 @@ async function onSubmit() {
   <div class="login">
     <form class="panel" @submit.prevent="onSubmit">
       <div class="brand">
-        <GLogo :width="132" :height="52" tone="light" />
+        <GLogo :width="150" :height="52" tone="light" />
         <span class="eyebrow">Verwaltung</span>
       </div>
 

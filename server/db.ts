@@ -102,6 +102,7 @@ async function createSchema(): Promise<void> {
         id INT UNSIGNED NOT NULL AUTO_INCREMENT,
         titel VARCHAR(255) NOT NULL,
         untertitel VARCHAR(255) NOT NULL DEFAULT '',
+        beschreibung TEXT NOT NULL,
         dauer VARCHAR(16) NOT NULL DEFAULT '',
         datei VARCHAR(255) NOT NULL DEFAULT '',
         sortierung INT NOT NULL DEFAULT 0,
@@ -119,6 +120,9 @@ async function createSchema(): Promise<void> {
     const spalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM videos`)
     if (!spalten.some((spalte) => spalte.Field === 'datei')) {
       await conn.query(`ALTER TABLE videos ADD COLUMN datei VARCHAR(255) NOT NULL DEFAULT ''`)
+    }
+    if (!spalten.some((spalte) => spalte.Field === 'beschreibung')) {
+      await conn.query(`ALTER TABLE videos ADD COLUMN beschreibung TEXT NOT NULL AFTER untertitel`)
     }
 
     /* Ein Video kann in mehreren Paketen liegen; kein Eintrag = öffentlich. */
@@ -427,7 +431,8 @@ export async function deletePaket(id: number): Promise<'ok' | 'videos' | 'benutz
 
 /* ── Videos ────────────────────────────────────────────────────────────── */
 
-const VIDEO_SPALTEN = 'v.id, v.titel, v.untertitel, v.dauer, v.datei, v.sortierung, v.aktiv'
+const VIDEO_SPALTEN =
+  'v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei, v.sortierung, v.aktiv'
 
 /**
  * Die Sichtbarkeitsregel für einen angemeldeten Nutzer: öffentlich (in keinem
@@ -466,6 +471,7 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     id: Number(row.id),
     titel: String(row.titel),
     untertitel: String(row.untertitel ?? ''),
+    beschreibung: String(row.beschreibung ?? ''),
     dauer: String(row.dauer ?? ''),
     paketIds: [],
     paketNamen: [],
@@ -573,15 +579,15 @@ export async function saveVideo(
     let videoId: number
     if (id === null) {
       const result = await conn.query(
-        'INSERT INTO videos (titel, untertitel, dauer, datei, sortierung, aktiv) VALUES (?, ?, ?, ?, ?, ?)',
-        [daten.titel, daten.untertitel, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0],
+        'INSERT INTO videos (titel, untertitel, beschreibung, dauer, datei, sortierung, aktiv) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0],
       )
       videoId = Number(result.insertId)
     } else {
       videoId = id
       await conn.query(
-        'UPDATE videos SET titel = ?, untertitel = ?, dauer = ?, datei = ?, sortierung = ?, aktiv = ? WHERE id = ?',
-        [daten.titel, daten.untertitel, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0, id],
+        'UPDATE videos SET titel = ?, untertitel = ?, beschreibung = ?, dauer = ?, datei = ?, sortierung = ?, aktiv = ? WHERE id = ?',
+        [daten.titel, daten.untertitel, daten.beschreibung, daten.dauer, daten.datei, daten.sortierung, daten.aktiv ? 1 : 0, id],
       )
     }
 
@@ -629,7 +635,17 @@ export async function deleteVideo(id: number): Promise<void> {
  * `freigeschaltet` sagt je Eintrag, ob dieser Aufrufer ihn ansehen darf.
  */
 export async function paketInhalte(benutzerId: number | null): Promise<
-  (Paket & { videos: { id: number; titel: string; untertitel: string; dauer: string; freigeschaltet: boolean }[] })[]
+  (Paket & {
+    videos: {
+      id: number
+      titel: string
+      untertitel: string
+      beschreibung: string
+      dauer: string
+      freigeschaltet: boolean
+      hatDatei: boolean
+    }[]
+  })[]
 > {
   await ensureReady()
 
@@ -641,7 +657,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
   if (!pakete.length) return []
 
   const zeilen: Record<string, unknown>[] = await getPool().query(
-    `SELECT vp.paket_id, v.id, v.titel, v.untertitel, v.dauer,
+    `SELECT vp.paket_id, v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei,
             ${benutzerId === null ? '0' : SICHTBAR_FUER_NUTZER} AS freigeschaltet
      FROM video_pakete vp
      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
@@ -660,8 +676,11 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         id: Number(zeile.id),
         titel: String(zeile.titel),
         untertitel: String(zeile.untertitel ?? ''),
+        beschreibung: String(zeile.beschreibung ?? ''),
         dauer: String(zeile.dauer ?? ''),
         freigeschaltet: Number(zeile.freigeschaltet) === 1,
+        // Nur ob eine Datei hinterlegt ist — der Dateiname bleibt intern.
+        hatDatei: String(zeile.datei ?? '') !== '',
       })),
   }))
 }

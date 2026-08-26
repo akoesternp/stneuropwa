@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Router } from 'express'
 import { darfVideoSehen, paketInhalte, sichtbareVideos } from '../db.js'
-import { VIDEO_DIR } from '../paths.js'
+import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
 import { currentSession } from '../sessions.js'
 import { formatiereDauer, parseDauer } from '../videodauer.js'
 
@@ -53,6 +53,36 @@ portalRouter.get('/pakete', async (req, res) => {
       }
     }),
   })
+})
+
+/**
+ * Das Vorschaubild einer Kachel — bewusst OHNE Berechtigungsprüfung.
+ *
+ * Ein Einzelbild aus dem Video ist die Beschreibung des Inhalts, nicht der
+ * Inhalt selbst: es soll auch an gesperrten Kacheln stehen, so wie Titel und
+ * Laufzeit. Wer kein Vorschaubild hinterlegt hat, bekommt 404 — die Kachel
+ * fällt dann auf ihren Farbverlauf zurück.
+ */
+portalRouter.get('/videos/:id/thumb', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(404).end()
+    return
+  }
+
+  const pfad = join(THUMB_DIR, `${id}.jpg`)
+  if (!existsSync(pfad)) {
+    res.status(404).end()
+    return
+  }
+
+  /*
+   * Kurze Frist statt langer: ein neu erzeugtes Vorschaubild soll bald
+   * sichtbar sein, ohne dass die Kacheln bei jedem Seitenaufruf erneut
+   * geladen werden. Den Rest erledigt die ETag-Prüfung von sendFile.
+   */
+  res.setHeader('Cache-Control', 'public, max-age=300')
+  res.sendFile(pfad)
 })
 
 /**
