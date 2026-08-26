@@ -1,0 +1,36 @@
+{
+  "name": "stneuro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "vue-tsc --noEmit && vite build && tsc -p tsconfig.server.json",
+    "build:client": "vite build",
+    "start": "node server-dist/server/index.js",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "benutzer:anlegen": "tsx tools/benutzer-anlegen.ts"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "mariadb": "^3.5.3",
+    "pinia": "^3.0.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.13.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "tsx": "^4.23.12",
+    "typescript": "~5.7.3",
+    "vite": "^6.0.11",
+    "vite-plugin-pwa": "^0.21.1",
+    "vue-tsc": "^2.2.0"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

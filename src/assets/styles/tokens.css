@@ -1,0 +1,63 @@
+/*
+ * Design-Tokens. Aufbau wie im Schwesterprojekt (Händlerportal), Farbwelt
+ * eigenständig: dunkles Nachtblau + Indigo als Aktionsfarbe.
+ */
+
+:root {
+  /* ── Farben ─────────────────────────────────────────────────────── */
+  --c-dark: rgb(24, 33, 66); /* dunkle Flächen, Footer, aktive Nav-Pille */
+  --c-action: rgb(63, 81, 219); /* primäre Buttons, Links */
+  --c-positive: rgb(35, 138, 91); /* Erfolgsmeldungen, „aktiv" */
+  --c-accent: rgb(103, 90, 224); /* Endpunkt des Farbverlaufs */
+  --c-tint: rgba(63, 81, 219, 0.08); /* Nav-Container, Chips, Ghost-Buttons */
+  --c-orange: rgb(226, 122, 22); /* Warnungen */
+  --c-red: rgb(213, 27, 27); /* Fehler, destruktives Hover */
+
+  --c-page: rgb(251, 250, 252); /* Seitenhintergrund */
+  --c-surface: rgb(245, 245, 247); /* Karten, Tabellenköpfe */
+  --c-surface-2: rgb(249, 249, 251); /* sekundäre Flächen */
+  --c-white: rgb(255, 255, 255);
+
+  --c-text: rgb(10, 12, 20);
+  --c-text-dark: rgb(34, 34, 40); /* Fließtext */
+  --c-text-muted: rgb(115, 115, 125); /* Labels, Meta */
+  --c-text-faint: rgb(170, 170, 178); /* Hinweise, Platzhalter */
+  --c-on-dark: rgba(255, 255, 255, 0.78); /* Absätze auf Dunkelblau */
+  --c-on-dark-faint: rgba(255, 255, 255, 0.66); /* Footer, Stat-Labels */
+  --c-on-dark-eyebrow: rgba(255, 255, 255, 0.7);
+  --c-subhead: rgba(10, 12, 20, 0.4); /* sekundäre Überschriften */
+
+  --c-border: rgb(217, 217, 222); /* Formularfeld-Ränder */
+  --c-hairline: rgb(238, 238, 241); /* Kartenränder */
+  --c-hairline-2: rgb(240, 240, 243); /* Trennlinien */
+  --c-hairline-3: rgb(246, 246, 248); /* Zeilentrenner */
+  --c-focus: rgb(90, 110, 235);
+
+  /* Signatur-Verlauf — Login, Hinweiskarten */
+  --gradient: linear-gradient(74.587deg, rgb(24, 33, 66) 26.63%, rgb(103, 90, 224) 99.27%);
+
+  /* ── Typografie ─────────────────────────────────────────────────── */
+  --font-sans: 'Instrument Sans', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  /* Inter — 12px-Meta-Labels/Eyebrows und Zahlen */
+  --font-num: 'Inter', -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --fs-display: 42px; /* Seitenüberschriften */
+  --fs-stat: 32px; /* große Zahlen */
+  --fs-h3: 20px; /* Kartenüberschriften */
+  --fs-body: 18px; /* UI-Standard — Buttons, Nav, Eingaben */
+  --fs-secondary: 14px; /* Tabellenzellen, Hinweise */
+  --fs-num: 15px; /* Zahlen */
+  --fs-meta: 12px; /* Meta-Labels, Kleingedrucktes */
+
+  /* ── Radien ─────────────────────────────────────────────────────── */
+  --r-pill: 50px; /* Buttons — immer voll gerundet */
+  --r-nav: 42px; /* Nav-Container/-Pillen, Chips */
+  --r-card: 15px; /* Karten, Panels, Eingaben, Kacheln */
+
+  /* ── Abstände / Layout ──────────────────────────────────────────── */
+  --gutter: 40px;
+  --section-gap: 26px;
+  --card-pad: 26px;
+  --max-w: 1560px;
+}

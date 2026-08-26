@@ -1,0 +1,12 @@
+node_modules/
+dist/
+server-dist/
+server/videos/
+dist-ssr/
+*.local
+.DS_Store
+.vite/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example

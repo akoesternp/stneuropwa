@@ -1,0 +1,57 @@
+# /etc/systemd/system/stneuro.service
+#
+# Installation:
+#   sudo cp deploy/stneuro.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now stneuro
+
+[Unit]
+Description=stneuro Videoportal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stneuro
+Group=stneuro
+WorkingDirectory=/opt/stneuro
+
+# PORT, HOST, SECURE_COOKIES … — siehe deploy/README.md.
+# Die Datei gehört NICHT ins Repo: sie kann ADMIN_PASSWORD enthalten.
+EnvironmentFile=/etc/stneuro.env
+
+ExecStart=/usr/bin/node server-dist/server/index.js
+
+Restart=always
+RestartSec=5
+# Nach einem Fehlstart nicht endlos im Sekundentakt neu starten.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stneuro
+
+# ── Härtung ──────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+# Die Videodateien liegen hier; der Dienst liest sie nur, das Verzeichnis
+# anlegen darf er aber (bootstrap). Hochgeladen wird per SFTP/rsync.
+ReadWritePaths=/var/lib/stneuro
+
+# Der Dienst lauscht auf localhost und spricht nur MariaDB.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

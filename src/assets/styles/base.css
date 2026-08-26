@@ -1,0 +1,145 @@
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--c-page);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  /* Die Gestaltung ist überwiegend Gewicht 500 — das ist der Standard, nicht 400. */
+  font-weight: 500;
+  font-size: var(--fs-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 500;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--c-action);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--c-dark);
+  text-decoration: underline;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 1px;
+}
+
+/* Keine Animationen jenseits von Hover-Farbwechseln; alle <= 150 ms. */
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    background-color 0.13s ease,
+    border-color 0.13s ease,
+    color 0.13s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ── Gemeinsame Text-Utilities ─────────────────────────────────────── */
+
+/* Inter 12px Versalien — Eyebrows, Formular-Labels */
+.t-eyebrow {
+  font-family: var(--font-num);
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+/* Inter 12px ohne Versalien — Meta-Angaben, Zähler */
+.t-meta {
+  font-family: var(--font-num);
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--c-text-muted);
+}
+
+.t-h2 {
+  font-size: var(--fs-display);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.t-h3 {
+  font-size: var(--fs-h3);
+  font-weight: 500;
+}
+
+.t-subhead {
+  font-size: var(--fs-body);
+  line-height: 1.8;
+  color: var(--c-subhead);
+}
+
+.t-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
