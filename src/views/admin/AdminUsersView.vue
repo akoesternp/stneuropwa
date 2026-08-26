@@ -50,8 +50,13 @@ async function load() {
   ])
 }
 
-/** Für Einzelfreischaltungen nur sinnvoll: Videos, die hinter einem Paket liegen. */
-const paketVideos = computed(() => videos.value.filter((video) => video.paketIds.length > 0))
+/**
+ * Zuweisbar ist alles, was nicht ohnehin öffentlich ist — auch Videos ganz
+ * ohne Paket. Vorher standen nur Paket-Videos zur Wahl, wodurch sich ein
+ * Video, das weder öffentlich noch in einem Paket liegt, überhaupt nicht
+ * freischalten ließ.
+ */
+const paketVideos = computed(() => videos.value.filter((video) => !video.oeffentlich))
 
 onMounted(load)
 
@@ -216,7 +221,8 @@ async function remove(row: BenutzerEintrag) {
       <div class="assign">
         <span class="t-eyebrow">Einzelne Videos (zusätzlich zu den Paketen)</span>
         <p v-if="!paketVideos.length" class="hint">
-          Es gibt noch keine Videos in Paketen.
+          Es gibt noch keine Videos, die freigeschaltet werden müssten — öffentliche sieht
+          ohnehin jeder.
         </p>
         <div v-else class="paket-list">
           <label v-for="video in paketVideos" :key="video.id" class="paket">
@@ -226,7 +232,13 @@ async function remove(row: BenutzerEintrag) {
               @change="toggleVideo(video.id)"
             />
             {{ video.titel }}
-            <span class="t-meta">({{ video.paketNamen.join(', ') }})</span>
+            <span class="t-meta">{{ video.paketNamen.join(', ') || 'ohne Paket' }}</span>
+            <!--
+              Ein inaktives Video bleibt trotz Freischaltung unsichtbar. Ohne
+              diesen Hinweis sucht man den Fehler bei der Zuweisung statt beim
+              Video.
+            -->
+            <span v-if="!video.aktiv" class="t-meta inaktiv">inaktiv</span>
           </label>
         </div>
       </div>
@@ -328,6 +340,14 @@ async function remove(row: BenutzerEintrag) {
   gap: 10px;
   cursor: pointer;
   font-size: var(--fs-secondary);
+}
+
+/* Sticht bewusst heraus: die Zuweisung wirkt hier nicht. */
+.inaktiv {
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  background: var(--c-orange);
+  color: var(--c-white);
 }
 
 .paket input,

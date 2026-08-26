@@ -124,14 +124,31 @@ interface Abschnitt {
 const abschnitte = computed<Abschnitt[]>(() => {
   const nachPaket = new Map<number, Abschnitt>()
   const frei: Video[] = []
+  const einzeln: Video[] = []
+
+  // Die Pakete, die dem Nutzer wirklich gehören.
+  const eigene = new Set(auth.user?.pakete ?? [])
 
   for (const video of videos.videos) {
-    if (!video.paketIds.length) {
-      frei.push(video)
+    /*
+     * Nur eigene Pakete bekommen einen Abschnitt. Sonst stünde ein einzeln
+     * freigeschaltetes Video unter der Überschrift eines Pakets, das dem
+     * Nutzer gar nicht gehört — samt Verweis auf eine Paketseite, auf der
+     * alles Übrige gesperrt ist.
+     */
+    const eigenePakete = video.paketIds.filter((_, stelle) =>
+      eigene.has(video.paketNamen[stelle] ?? ''),
+    )
+
+    if (!eigenePakete.length) {
+      // Sichtbar aus einem anderen Grund: entweder frei oder einzeln zugeteilt.
+      if (video.oeffentlich) frei.push(video)
+      else einzeln.push(video)
       continue
     }
 
-    video.paketIds.forEach((paketId, stelle) => {
+    eigenePakete.forEach((paketId) => {
+      const stelle = video.paketIds.indexOf(paketId)
       const vorhanden = nachPaket.get(paketId)
       if (vorhanden) {
         vorhanden.videos.push(video)
@@ -148,6 +165,15 @@ const abschnitte = computed<Abschnitt[]>(() => {
   }
 
   const liste = [...nachPaket.values()]
+  if (einzeln.length) {
+    liste.push({
+      schluessel: 'einzeln',
+      titel: 'Für Sie freigeschaltet',
+      paketId: null,
+      videos: einzeln,
+      erledigtAnzahl: 0,
+    })
+  }
   if (frei.length) {
     liste.push({
       schluessel: 'frei',
