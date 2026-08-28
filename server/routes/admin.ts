@@ -9,6 +9,7 @@ import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   deleteAdmin,
   deleteBereich,
+  deleteZielgruppe,
   deleteBenutzer,
   deletePaket,
   deleteVideo,
@@ -17,12 +18,14 @@ import {
   listAdmins,
   listBereiche,
   listPaketeMitVideos,
+  listZielgruppenMitInhalt,
   listBenutzer,
   listPakete,
   listVideos,
   saveBenutzer,
   saveBereich,
   savePaket,
+  saveZielgruppe,
   saveVideo,
   upsertAdmin,
 } from '../db.js'
@@ -199,6 +202,73 @@ adminRouter.delete('/pakete/:id', async (req, res) => {
     return
   }
 
+  res.json({ ok: true })
+})
+
+// ── Zielgruppen ────────────────────────────────────────────────────────────
+
+adminRouter.get('/zielgruppen', async (_req, res) => {
+  res.json(await listZielgruppenMitInhalt())
+})
+
+adminRouter.put('/zielgruppen', async (req, res) => {
+  const body = req.body ?? {}
+  const id = body.id == null ? null : Number(body.id)
+  const name = String(body.name ?? '').trim().slice(0, 128)
+
+  if (!name) {
+    res.status(400).json({ error: 'Der Name ist Pflicht.' })
+    return
+  }
+
+  /*
+   * Nur Bekanntes übernehmen, und "nicht mitgeschickt" heißt unangetastet —
+   * dieselbe Unterscheidung wie bei den Paketen.
+   */
+  const nurBekannte = async (roh: unknown, bekannt: Set<number>) => {
+    if (!Array.isArray(roh)) return null
+    return [...new Set((roh as unknown[]).map((wert) => Number(wert)))].filter((eintrag) =>
+      bekannt.has(eintrag),
+    )
+  }
+
+  const paketIds = await nurBekannte(
+    body.paketIds,
+    new Set((await listPakete()).map((paket) => paket.id)),
+  )
+  const videoIds = await nurBekannte(
+    body.videoIds,
+    new Set((await listVideos()).map((video) => video.id)),
+  )
+
+  try {
+    const zielgruppeId = await saveZielgruppe(
+      id,
+      {
+        name,
+        beschreibung: String(body.beschreibung ?? ''),
+        sortierung: Number(body.sortierung) || 0,
+        aktiv: body.aktiv !== false,
+      },
+      paketIds,
+      videoIds,
+    )
+    res.json({ id: zielgruppeId })
+  } catch (cause) {
+    if (istDuplikat(cause)) {
+      res.status(409).json({ error: 'Eine Zielgruppe mit diesem Namen gibt es bereits.' })
+      return
+    }
+    throw cause
+  }
+})
+
+adminRouter.delete('/zielgruppen/:id', async (req, res) => {
+  /*
+   * Ohne Rückfrage löschbar: an einer Zielgruppe hängt keine Berechtigung,
+   * Pakete und Videos bleiben unberührt — anders als bei einem Paket.
+   */
+  await deleteZielgruppe(Number(req.params.id))
   res.json({ ok: true })
 })
 

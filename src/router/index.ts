@@ -40,6 +40,11 @@ const router = createRouter({
           component: () => import('@/views/admin/AdminVideosView.vue'),
         },
         {
+          path: 'zielgruppen',
+          name: 'admin-zielgruppen',
+          component: () => import('@/views/admin/AdminZielgruppenView.vue'),
+        },
+        {
           path: 'bereiche',
           name: 'admin-bereiche',
           component: () => import('@/views/admin/AdminBereicheView.vue'),

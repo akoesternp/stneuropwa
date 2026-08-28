@@ -8,6 +8,8 @@ import type {
   Paket,
   PaketEintrag,
   Video,
+  Zielgruppe,
+  ZielgruppeEintrag,
 } from '../shared/types.js'
 
 /**
@@ -146,6 +148,43 @@ async function createSchema(): Promise<void> {
         await conn.query(`ALTER TABLE videos ADD COLUMN ${name} ${typ}`)
       }
     }
+
+    /*
+     * Zielgruppen — die oberste Ebene. Sie fassen Pakete und einzelne Videos
+     * zusammen und dienen der Gliederung, nicht der Berechtigung.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS zielgruppen (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name VARCHAR(128) NOT NULL,
+        beschreibung TEXT NOT NULL,
+        sortierung INT NOT NULL DEFAULT 0,
+        aktiv TINYINT(1) NOT NULL DEFAULT 1,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS zielgruppe_pakete (
+        zielgruppe_id INT UNSIGNED NOT NULL,
+        paket_id INT UNSIGNED NOT NULL,
+        sortierung INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (zielgruppe_id, paket_id),
+        KEY ix_paket (paket_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
+    /* Einzelne Videos ohne Umweg über ein Paket. */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS zielgruppe_videos (
+        zielgruppe_id INT UNSIGNED NOT NULL,
+        video_id INT UNSIGNED NOT NULL,
+        sortierung INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (zielgruppe_id, video_id),
+        KEY ix_video (video_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
 
     /*
      * Die Trainingsbereiche. In videos.bereich steht der NAME, nicht eine ID:
@@ -565,6 +604,7 @@ export async function deletePaket(id: number): Promise<'ok' | 'videos' | 'benutz
   )
   if (Number(nutzer?.anzahl)) return 'benutzer'
 
+  await getPool().query('DELETE FROM zielgruppe_pakete WHERE paket_id = ?', [id])
   await getPool().query('DELETE FROM pakete WHERE id = ?', [id])
   return 'ok'
 }
@@ -609,6 +649,7 @@ const OEFFENTLICH = `v.oeffentlich = 1`
  */
 async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
   const videos: Video[] = rows.map((row) => ({
+    zielgruppenNamen: [],
     id: Number(row.id),
     titel: String(row.titel),
     untertitel: String(row.untertitel ?? ''),
@@ -643,6 +684,35 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     if (!video) continue
     video.paketIds.push(Number(zuordnung.paket_id))
     video.paketNamen.push(String(zuordnung.name))
+  }
+
+  /*
+   * Ein Video gehört zu einer Zielgruppe, wenn es ihr direkt zugeordnet ist
+   * ODER in einem ihrer Pakete liegt. Beide Wege in einer Abfrage, damit die
+   * Oberfläche die Regel nicht nachbauen muss.
+   */
+  const ids = videos.map((video) => video.id)
+  const zielgruppen: Record<string, unknown>[] = await getPool().query(
+    `SELECT zv.video_id, z.name, z.sortierung
+       FROM zielgruppe_videos zv JOIN zielgruppen z ON z.id = zv.zielgruppe_id AND z.aktiv = 1
+      WHERE zv.video_id IN (?)
+      UNION
+     SELECT vp.video_id, z.name, z.sortierung
+       FROM video_pakete vp
+       JOIN zielgruppe_pakete zp ON zp.paket_id = vp.paket_id
+       JOIN zielgruppen z ON z.id = zp.zielgruppe_id AND z.aktiv = 1
+      WHERE vp.video_id IN (?)
+      ORDER BY sortierung, name`,
+    [ids, ids],
+  )
+
+  for (const zuordnung of zielgruppen) {
+    const video = nachId.get(Number(zuordnung.video_id))
+    if (!video) continue
+    const name = String(zuordnung.name)
+    // UNION entfernt Dubletten je Zeile, nicht je Video — ein Video kann über
+    // zwei Pakete in derselben Zielgruppe landen.
+    if (!video.zielgruppenNamen.includes(name)) video.zielgruppenNamen.push(name)
   }
 
   return videos
@@ -710,7 +780,8 @@ export async function darfVideoSehen(
 }
 
 /** Eingabe für saveVideo — `paketIds` null lässt die Zuordnung unangetastet. */
-export interface VideoSpeichern extends Omit<Video, 'id' | 'paketNamen' | 'paketIds'> {
+export interface VideoSpeichern
+  extends Omit<Video, 'id' | 'paketNamen' | 'paketIds' | 'zielgruppenNamen'> {
   paketIds: number[] | null
 }
 
@@ -791,6 +862,7 @@ export async function deleteVideo(id: number): Promise<void> {
     await conn.beginTransaction()
     await conn.query('DELETE FROM benutzer_videos WHERE video_id = ?', [id])
     await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [id])
+    await conn.query('DELETE FROM zielgruppe_videos WHERE video_id = ?', [id])
     await conn.query('DELETE FROM fortschritt WHERE video_id = ?', [id])
     await conn.query('DELETE FROM videos WHERE id = ?', [id])
     await conn.commit()
@@ -864,6 +936,143 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         hatDatei: String(zeile.datei ?? '') !== '',
       })),
   }))
+}
+
+/* ── Zielgruppen ───────────────────────────────────────────────────────── */
+
+function toZielgruppe(row: Record<string, unknown>): Zielgruppe {
+  return {
+    id: Number(row.id),
+    name: String(row.name),
+    beschreibung: String(row.beschreibung ?? ''),
+    sortierung: Number(row.sortierung) || 0,
+    aktiv: Number(row.aktiv) === 1,
+  }
+}
+
+export async function listZielgruppen(nurAktive = false): Promise<Zielgruppe[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT id, name, beschreibung, sortierung, aktiv FROM zielgruppen
+     ${nurAktive ? 'WHERE aktiv = 1' : ''} ORDER BY sortierung, name`,
+  )
+  return rows.map(toZielgruppe)
+}
+
+/** Die Zielgruppen samt Inhalt, jeweils in ihrer Reihenfolge. */
+export async function listZielgruppenMitInhalt(): Promise<ZielgruppeEintrag[]> {
+  await ensureReady()
+  const zielgruppen = await listZielgruppen()
+  if (!zielgruppen.length) return []
+
+  const pakete: Record<string, unknown>[] = await getPool().query(
+    'SELECT zielgruppe_id, paket_id FROM zielgruppe_pakete ORDER BY sortierung, paket_id',
+  )
+  const videos: Record<string, unknown>[] = await getPool().query(
+    'SELECT zielgruppe_id, video_id FROM zielgruppe_videos ORDER BY sortierung, video_id',
+  )
+
+  const sammle = (zeilen: Record<string, unknown>[], feld: string) => {
+    const karte = new Map<number, number[]>()
+    for (const zeile of zeilen) {
+      const schluessel = Number(zeile.zielgruppe_id)
+      const liste = karte.get(schluessel) ?? []
+      liste.push(Number(zeile[feld]))
+      karte.set(schluessel, liste)
+    }
+    return karte
+  }
+
+  const nachPaket = sammle(pakete, 'paket_id')
+  const nachVideo = sammle(videos, 'video_id')
+
+  return zielgruppen.map((zielgruppe) => ({
+    ...zielgruppe,
+    paketIds: nachPaket.get(zielgruppe.id) ?? [],
+    videoIds: nachVideo.get(zielgruppe.id) ?? [],
+  }))
+}
+
+/**
+ * Anlegen bzw. Ändern samt Inhalt. Wie bei den Paketen bedeutet null
+ * „unangetastet lassen" — nicht „nichts enthalten".
+ */
+export async function saveZielgruppe(
+  id: number | null,
+  daten: Omit<Zielgruppe, 'id'>,
+  paketIds: number[] | null = null,
+  videoIds: number[] | null = null,
+): Promise<number> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    let zielgruppeId: number
+    if (id === null) {
+      const ergebnis = await conn.query(
+        'INSERT INTO zielgruppen (name, beschreibung, sortierung, aktiv) VALUES (?, ?, ?, ?)',
+        [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0],
+      )
+      zielgruppeId = Number(ergebnis.insertId)
+    } else {
+      zielgruppeId = id
+      await conn.query(
+        'UPDATE zielgruppen SET name = ?, beschreibung = ?, sortierung = ?, aktiv = ? WHERE id = ?',
+        [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0, id],
+      )
+    }
+
+    if (paketIds !== null) {
+      await conn.query('DELETE FROM zielgruppe_pakete WHERE zielgruppe_id = ?', [zielgruppeId])
+      if (paketIds.length) {
+        await conn.batch(
+          'INSERT INTO zielgruppe_pakete (zielgruppe_id, paket_id, sortierung) VALUES (?, ?, ?)',
+          paketIds.map((paketId, stelle) => [zielgruppeId, paketId, stelle + 1]),
+        )
+      }
+    }
+
+    if (videoIds !== null) {
+      await conn.query('DELETE FROM zielgruppe_videos WHERE zielgruppe_id = ?', [zielgruppeId])
+      if (videoIds.length) {
+        await conn.batch(
+          'INSERT INTO zielgruppe_videos (zielgruppe_id, video_id, sortierung) VALUES (?, ?, ?)',
+          videoIds.map((videoId, stelle) => [zielgruppeId, videoId, stelle + 1]),
+        )
+      }
+    }
+
+    await conn.commit()
+    return zielgruppeId
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/**
+ * Löschen samt Zuordnungen. Anders als bei Paketen ist das unbedenklich: eine
+ * Zielgruppe ist reine Gliederung, an ihr hängt keine Berechtigung — Pakete
+ * und Videos bleiben unberührt.
+ */
+export async function deleteZielgruppe(id: number): Promise<void> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+    await conn.query('DELETE FROM zielgruppe_pakete WHERE zielgruppe_id = ?', [id])
+    await conn.query('DELETE FROM zielgruppe_videos WHERE zielgruppe_id = ?', [id])
+    await conn.query('DELETE FROM zielgruppen WHERE id = ?', [id])
+    await conn.commit()
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
 }
 
 /* ── Bereiche ──────────────────────────────────────────────────────────── */

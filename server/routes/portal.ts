@@ -4,6 +4,7 @@ import { Router } from 'express'
 import {
   darfVideoSehen,
   listBereiche,
+  listZielgruppen,
   leseFortschritt,
   paketInhalte,
   sichtbareVideos,
@@ -30,8 +31,17 @@ portalRouter.get('/videos', async (req, res) => {
    * Die Bereiche kommen mit: die Startseite braucht sie für die Filterleiste,
    * und ein zweiter Aufruf für eine Handvoll Namen wäre Verschwendung.
    */
-  const [videos, bereiche] = await Promise.all([sichtbareVideos(benutzerId), listBereiche()])
-  res.json({ videos, bereiche: bereiche.map((bereich) => bereich.name) })
+  const [videos, bereiche, zielgruppen] = await Promise.all([
+    sichtbareVideos(benutzerId),
+    listBereiche(),
+    listZielgruppen(true),
+  ])
+
+  res.json({
+    videos,
+    bereiche: bereiche.map((bereich) => bereich.name),
+    zielgruppen: zielgruppen.map((zielgruppe) => zielgruppe.name),
+  })
 })
 
 /**

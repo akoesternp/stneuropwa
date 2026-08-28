@@ -11,14 +11,21 @@ export const useVideosStore = defineStore('videos', () => {
   const videos = ref<Video[]>([])
   /** Die gepflegten Trainingsbereiche — Reihenfolge wie im Backend. */
   const bereiche = ref<string[]>([])
+  /** Aktive Zielgruppen — die oberste Gliederungsebene im Portal. */
+  const zielgruppen = ref<string[]>([])
   const loaded = ref(false)
   const error = ref<string | null>(null)
 
   async function reload(): Promise<void> {
     try {
-      const result = await api.get<{ videos: Video[]; bereiche: string[] }>('/portal/videos')
+      const result = await api.get<{
+        videos: Video[]
+        bereiche: string[]
+        zielgruppen: string[]
+      }>('/portal/videos')
       videos.value = result.videos
       bereiche.value = result.bereiche ?? []
+      zielgruppen.value = result.zielgruppen ?? []
       error.value = null
     } catch {
       error.value = 'Die Inhalte konnten nicht geladen werden. Bitte später erneut versuchen.'
@@ -31,5 +38,5 @@ export const useVideosStore = defineStore('videos', () => {
     if (!loaded.value) await reload()
   }
 
-  return { videos, bereiche, loaded, error, reload, ensureLoaded }
+  return { videos, bereiche, zielgruppen, loaded, error, reload, ensureLoaded }
 })

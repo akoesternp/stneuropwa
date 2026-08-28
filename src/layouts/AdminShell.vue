@@ -11,6 +11,7 @@ const auth = useAuthStore()
 
 const nav = [
   { label: 'Nutzer', name: 'admin-users' },
+  { label: 'Zielgruppen', name: 'admin-zielgruppen' },
   { label: 'Pakete', name: 'admin-pakete' },
   { label: 'Videos', name: 'admin-videos' },
   { label: 'Bereiche', name: 'admin-bereiche' },

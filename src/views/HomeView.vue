@@ -27,6 +27,13 @@ const fortschritt = useFortschrittStore()
 const JE_ABSCHNITT = 8
 
 const suche = ref('')
+/**
+ * Die Zielgruppe wirkt anders als die übrigen Filter: sie grenzt den Bestand
+ * ein, bevor gegliedert wird — Suche, Bereich und Schwierigkeit suchen dann
+ * innerhalb dieses Ausschnitts. Deshalb bleibt die Gliederung nach Paketen
+ * erhalten, solange nur eine Zielgruppe gewählt ist.
+ */
+const zielgruppeFilter = ref<string[]>([])
 const bereichFilter = ref<string[]>([])
 const schwierigkeitFilter = ref<string[]>([])
 
@@ -60,16 +67,28 @@ const filterAktiv = computed(
     schwierigkeitFilter.value.length > 0,
 )
 
+const etwasGewaehlt = computed(() => filterAktiv.value || zielgruppeFilter.value.length > 0)
+
 function zuruecksetzen() {
   suche.value = ''
+  zielgruppeFilter.value = []
   bereichFilter.value = []
   schwierigkeitFilter.value = []
 }
 
+/** Der Ausschnitt, in dem alles Weitere stattfindet. */
+const imAusschnitt = computed(() =>
+  zielgruppeFilter.value.length
+    ? videos.videos.filter((video) =>
+        video.zielgruppenNamen.some((name) => zielgruppeFilter.value.includes(name)),
+      )
+    : videos.videos,
+)
+
 const treffer = computed(() => {
   const begriff = suche.value.trim().toLowerCase()
 
-  return videos.videos.filter((video) => {
+  return imAusschnitt.value.filter((video) => {
     if (bereichFilter.value.length && !bereichFilter.value.includes(video.bereich)) return false
     if (schwierigkeitFilter.value.length && !schwierigkeitFilter.value.includes(video.schwierigkeit))
       return false
@@ -129,7 +148,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
   // Die Pakete, die dem Nutzer wirklich gehören.
   const eigene = new Set(auth.user?.pakete ?? [])
 
-  for (const video of videos.videos) {
+  for (const video of imAusschnitt.value) {
     /*
      * Nur eigene Pakete bekommen einen Abschnitt. Sonst stünde ein einzeln
      * freigeschaltetes Video unter der Überschrift eines Pakets, das dem
@@ -222,6 +241,23 @@ const abschnitte = computed<Abschnitt[]>(() => {
         />
       </label>
 
+      <!--
+        Zielgruppen zuerst und abgesetzt: sie grenzen den Bestand ein, die
+        übrigen Knöpfe suchen darin.
+      -->
+      <div v-if="videos.zielgruppen.length" class="chips">
+        <button
+          v-for="zielgruppe in videos.zielgruppen"
+          :key="zielgruppe"
+          type="button"
+          class="chip zielgruppe"
+          :class="{ an: zielgruppeFilter.includes(zielgruppe) }"
+          @click="umschalten(zielgruppeFilter, zielgruppe)"
+        >
+          {{ zielgruppe }}
+        </button>
+      </div>
+
       <div class="chips">
         <button
           v-for="bereich in videos.bereiche"
@@ -247,7 +283,9 @@ const abschnitte = computed<Abschnitt[]>(() => {
           {{ grad }}
         </button>
 
-        <GButton v-if="filterAktiv" variant="text" @click="zuruecksetzen">Zurücksetzen</GButton>
+        <GButton v-if="etwasGewaehlt" variant="text" @click="zuruecksetzen">
+          Zurücksetzen
+        </GButton>
       </div>
     </div>
 
@@ -459,6 +497,16 @@ const abschnitte = computed<Abschnitt[]>(() => {
   background: var(--c-dark);
   border-color: var(--c-dark);
   color: var(--c-white);
+}
+
+/* Oberste Ebene — etwas kräftiger als die Merkmalsfilter darunter. */
+.chip.zielgruppe {
+  font-weight: 500;
+}
+
+.chip.zielgruppe.an {
+  background: var(--c-action);
+  border-color: var(--c-action);
 }
 
 .trenner {

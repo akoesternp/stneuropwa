@@ -35,6 +35,28 @@ export const STANDARD_BEREICHE = [
 export const SCHWIERIGKEITEN = ['leicht', 'mittel', 'schwer'] as const
 export type Schwierigkeit = (typeof SCHWIERIGKEITEN)[number]
 
+/**
+ * Eine Zielgruppe bündelt Pakete UND einzelne Videos — die oberste Ebene der
+ * Gliederung.
+ *
+ * Sie steuert bewusst KEINE Berechtigung: sichtbar bleibt, was öffentlich ist,
+ * in einem zugewiesenen Paket liegt oder einzeln freigeschaltet wurde. Die
+ * Zielgruppe sagt nur, für wen etwas gedacht ist.
+ */
+export interface Zielgruppe {
+  id: number
+  name: string
+  beschreibung: string
+  sortierung: number
+  aktiv: boolean
+}
+
+/** Eine Zielgruppe aus Sicht der Verwaltung — samt Inhalt, in Reihenfolge. */
+export interface ZielgruppeEintrag extends Zielgruppe {
+  paketIds: number[]
+  videoIds: number[]
+}
+
 /** Ein Paket bündelt Videos; Nutzern werden Pakete zugewiesen. */
 export interface Paket {
   id: number
@@ -74,6 +96,12 @@ export interface Video {
   hilfsmittel: string
   /** Paketnamen zum Anzeigen auf der Kachel, vom Server aufgelöst. */
   paketNamen: string[]
+  /**
+   * Zielgruppen dieses Videos — direkt zugeordnet oder über eines seiner
+   * Pakete. Vom Server aufgelöst, damit die Oberfläche danach filtern kann,
+   * ohne die Zuordnungen selbst nachzubauen.
+   */
+  zielgruppenNamen: string[]
   /**
    * Dateiname in VIDEO_DIR, '' = noch keine Datei verknüpft. Abgespielt wird
    * nie über diesen Namen, sondern über /api/portal/videos/:id/stream — der
