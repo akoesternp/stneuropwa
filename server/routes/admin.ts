@@ -97,6 +97,13 @@ adminRouter.put('/benutzer', async (req, res) => {
 
   const aktiv = body.aktiv !== false
 
+  /*
+   * Guthaben: ganzzahlig und nie negativ. Ein Minusstand ließe sich über kein
+   * Formular wieder ausgleichen und würde jeden Kauf blockieren.
+   */
+  const rohCredits = Number(body.credits)
+  const credits = Number.isFinite(rohCredits) ? Math.max(0, Math.floor(rohCredits)) : 0
+
   try {
     const benutzerId = await saveBenutzer(id, {
       email,
@@ -105,6 +112,7 @@ adminRouter.put('/benutzer', async (req, res) => {
       passwortHash: password ? await hashPassword(password) : null,
       paketIds,
       videoIds,
+      credits,
     })
 
     /*

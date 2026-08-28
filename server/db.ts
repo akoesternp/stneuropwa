@@ -1,6 +1,6 @@
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
-import { SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
+import { CREDITS_JE_VIDEO, paketPreis, SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
 import type {
   Bereich,
   BenutzerEintrag,
@@ -91,6 +91,17 @@ async function createSchema(): Promise<void> {
         UNIQUE KEY uq_email (email)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
+
+    /*
+     * Guthaben in Credits. Nachträglich ergänzt, deshalb als eigene Prüfung:
+     * CREATE TABLE IF NOT EXISTS rührt eine bestehende Tabelle nicht an.
+     * DEFAULT 0 heißt, dass alle Altkonten mit leerem Konto starten — was
+     * genau richtig ist, denn bezahlt hat dafür noch niemand.
+     */
+    const benutzerSpalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM benutzer`)
+    if (!benutzerSpalten.some((spalte) => spalte.Field === 'credits')) {
+      await conn.query(`ALTER TABLE benutzer ADD COLUMN credits INT NOT NULL DEFAULT 0`)
+    }
 
     await conn.query(
       `CREATE TABLE IF NOT EXISTS pakete (
@@ -332,6 +343,7 @@ export interface BenutzerRow {
   passwort: string
   name: string
   aktiv: boolean
+  credits: number
 }
 
 function toBenutzerRow(row: Record<string, unknown>): BenutzerRow {
@@ -341,13 +353,14 @@ function toBenutzerRow(row: Record<string, unknown>): BenutzerRow {
     passwort: String(row.passwort ?? ''),
     name: String(row.name ?? ''),
     aktiv: Number(row.aktiv) === 1,
+    credits: Number(row.credits) || 0,
   }
 }
 
 export async function findBenutzerByEmail(email: string): Promise<BenutzerRow | null> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, passwort, name, aktiv FROM benutzer WHERE email = ?',
+    'SELECT id, email, passwort, name, aktiv, credits FROM benutzer WHERE email = ?',
     [email],
   )
   return rows[0] ? toBenutzerRow(rows[0]) : null
@@ -356,7 +369,7 @@ export async function findBenutzerByEmail(email: string): Promise<BenutzerRow | 
 export async function findBenutzerById(id: number): Promise<BenutzerRow | null> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, passwort, name, aktiv FROM benutzer WHERE id = ?',
+    'SELECT id, email, passwort, name, aktiv, credits FROM benutzer WHERE id = ?',
     [id],
   )
   return rows[0] ? toBenutzerRow(rows[0]) : null
@@ -378,7 +391,7 @@ export async function paketNamenFuer(benutzerId: number): Promise<string[]> {
 export async function listBenutzer(): Promise<BenutzerEintrag[]> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, name, aktiv FROM benutzer ORDER BY email',
+    'SELECT id, email, name, aktiv, credits FROM benutzer ORDER BY email',
   )
   const pakete: { benutzer_id: number; paket_id: number }[] = await getPool().query(
     'SELECT benutzer_id, paket_id FROM benutzer_pakete',
@@ -406,6 +419,7 @@ export async function listBenutzer(): Promise<BenutzerEintrag[]> {
     email: String(row.email),
     name: String(row.name ?? ''),
     aktiv: Number(row.aktiv) === 1,
+    credits: Number(row.credits) || 0,
     paketIds: paketeVon.get(Number(row.id)) ?? [],
     videoIds: videosVon.get(Number(row.id)) ?? [],
   }))
@@ -419,6 +433,8 @@ export interface BenutzerSpeichern {
   passwortHash: string | null
   paketIds: number[]
   videoIds: number[]
+  /** Guthaben in Credits — im Backend frei setzbar, nie negativ. */
+  credits: number
 }
 
 /**
@@ -434,18 +450,26 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
     let benutzerId: number
     if (id === null) {
       const result = await conn.query(
-        'INSERT INTO benutzer (email, passwort, name, aktiv, angelegt_am) VALUES (?, ?, ?, ?, ?)',
-        [daten.email, daten.passwortHash ?? '', daten.name, daten.aktiv ? 1 : 0, Date.now()],
+        `INSERT INTO benutzer (email, passwort, name, aktiv, credits, angelegt_am)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          daten.email,
+          daten.passwortHash ?? '',
+          daten.name,
+          daten.aktiv ? 1 : 0,
+          daten.credits,
+          Date.now(),
+        ],
       )
       benutzerId = Number(result.insertId)
     } else {
       benutzerId = id
       await conn.query(
-        `UPDATE benutzer SET email = ?, name = ?, aktiv = ?
+        `UPDATE benutzer SET email = ?, name = ?, aktiv = ?, credits = ?
          ${daten.passwortHash ? ', passwort = ?' : ''} WHERE id = ?`,
         daten.passwortHash
-          ? [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.passwortHash, id]
-          : [daten.email, daten.name, daten.aktiv ? 1 : 0, id],
+          ? [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, daten.passwortHash, id]
+          : [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, id],
       )
     }
 
@@ -959,6 +983,8 @@ export async function deleteVideo(id: number): Promise<void> {
 export async function paketInhalte(benutzerId: number | null): Promise<
   (Paket & {
     zielgruppenNamen: string[]
+    /** Preis in Credits — dieselbe Formel, die auch beim Kauf abgebucht wird. */
+    kosten: number
     videos: {
       id: number
       titel: string
@@ -1017,11 +1043,16 @@ export async function paketInhalte(benutzerId: number | null): Promise<
     zielgruppenJePaket.set(schluessel, liste)
   }
 
-  return pakete.map((paket) => ({
+  return pakete.map((paket) => {
+    const eigene = zeilen.filter((zeile) => Number(zeile.paket_id) === paket.id)
+
+    return {
     ...paket,
     zielgruppenNamen: zielgruppenJePaket.get(paket.id) ?? [],
-    videos: zeilen
-      .filter((zeile) => Number(zeile.paket_id) === paket.id)
+    // `zeilen` enthält nur aktive Videos — inaktive kosten also nichts und
+    // wären auch nicht abspielbar.
+    kosten: paketPreis(eigene.length),
+    videos: eigene
       .map((zeile) => ({
         id: Number(zeile.id),
         titel: String(zeile.titel),
@@ -1035,7 +1066,168 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         // Nur ob eine Datei hinterlegt ist — der Dateiname bleibt intern.
         hatDatei: String(zeile.datei ?? '') !== '',
       })),
-  }))
+    }
+  })
+}
+
+/* ── Credits ───────────────────────────────────────────────────────────── */
+
+/**
+ * Wie ein Kaufversuch ausgegangen ist.
+ *
+ * Bewusst kein bloßes true/false: die Oberfläche soll „reicht nicht" von „hast
+ * du schon" unterscheiden können, und beides sind keine Fehler, sondern
+ * Antworten.
+ */
+export type KaufErgebnis =
+  | { status: 'ok'; kosten: number; credits: number }
+  | { status: 'zu-wenig'; kosten: number; credits: number }
+  | { status: 'schon-frei' }
+  | { status: 'nicht-gefunden' }
+  | { status: 'leer' }
+
+/**
+ * Schaltet eine einzelne Übung gegen Credits frei.
+ *
+ * Alles in EINER Transaktion, und das Guthaben wird mit FOR UPDATE gesperrt:
+ * zwei gleichzeitige Käufe desselben Kontos dürfen nicht beide gegen denselben
+ * Stand prüfen und am Ende mehr ausgeben, als da war.
+ *
+ * Preis und Berechtigung kommen aus derselben Quelle wie überall sonst — was
+ * ohnehin sichtbar ist (öffentlich, über ein Paket, bereits einzeln), kostet
+ * nichts und wird abgelehnt statt abgebucht.
+ */
+export async function kaufeVideo(benutzerId: number, videoId: number): Promise<KaufErgebnis> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const konten: Record<string, unknown>[] = await conn.query(
+      'SELECT credits FROM benutzer WHERE id = ? AND aktiv = 1 FOR UPDATE',
+      [benutzerId],
+    )
+    if (!konten[0]) {
+      await conn.rollback()
+      return { status: 'nicht-gefunden' }
+    }
+    const credits = Number(konten[0].credits) || 0
+
+    /*
+     * Nur was im Angebot steht: aktiv und in mindestens einem Paket. Eine
+     * Übung ohne Paket und ohne Öffentlich-Schalter ist Entwurf — dafür
+     * Credits zu nehmen wäre ein Fehlkauf.
+     */
+    const zeilen: Record<string, unknown>[] = await conn.query(
+      `SELECT v.oeffentlich,
+              EXISTS (SELECT 1 FROM video_pakete vp WHERE vp.video_id = v.id) AS imPaket,
+              ${SICHTBAR_FUER_NUTZER} AS schonFrei
+         FROM videos v
+        WHERE v.id = ? AND v.aktiv = 1`,
+      [benutzerId, benutzerId, videoId],
+    )
+    const video = zeilen[0]
+    if (!video || (Number(video.oeffentlich) !== 1 && Number(video.imPaket) !== 1)) {
+      await conn.rollback()
+      return { status: 'nicht-gefunden' }
+    }
+    if (Number(video.schonFrei) === 1) {
+      await conn.rollback()
+      return { status: 'schon-frei' }
+    }
+
+    const kosten = CREDITS_JE_VIDEO
+    if (credits < kosten) {
+      await conn.rollback()
+      return { status: 'zu-wenig', kosten, credits }
+    }
+
+    await conn.query('UPDATE benutzer SET credits = credits - ? WHERE id = ?', [kosten, benutzerId])
+    await conn.query(
+      'INSERT IGNORE INTO benutzer_videos (benutzer_id, video_id) VALUES (?, ?)',
+      [benutzerId, videoId],
+    )
+
+    await conn.commit()
+    return { status: 'ok', kosten, credits: credits - kosten }
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/**
+ * Schaltet ein ganzes Paket gegen Credits frei.
+ *
+ * Der Preis richtet sich nach der Zahl der aktiven Übungen im Paket, auch wenn
+ * einzelne davon bereits freigeschaltet sind: der Paketpreis hängt am Paket,
+ * nicht am Stand des Käufers. Gezahlt wird einmal — ein zweiter Kauf desselben
+ * Pakets wird abgelehnt, nicht abgebucht.
+ */
+export async function kaufePaket(benutzerId: number, paketId: number): Promise<KaufErgebnis> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const konten: Record<string, unknown>[] = await conn.query(
+      'SELECT credits FROM benutzer WHERE id = ? AND aktiv = 1 FOR UPDATE',
+      [benutzerId],
+    )
+    if (!konten[0]) {
+      await conn.rollback()
+      return { status: 'nicht-gefunden' }
+    }
+    const credits = Number(konten[0].credits) || 0
+
+    const pakete: Record<string, unknown>[] = await conn.query(
+      `SELECT p.id,
+              EXISTS (SELECT 1 FROM benutzer_pakete bp
+                       WHERE bp.paket_id = p.id AND bp.benutzer_id = ?) AS schonFrei,
+              (SELECT COUNT(*) FROM video_pakete vp
+                 JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
+                WHERE vp.paket_id = p.id) AS anzahl
+         FROM pakete p
+        WHERE p.id = ? AND p.aktiv = 1`,
+      [benutzerId, paketId],
+    )
+    const paket = pakete[0]
+    if (!paket) {
+      await conn.rollback()
+      return { status: 'nicht-gefunden' }
+    }
+    if (Number(paket.schonFrei) === 1) {
+      await conn.rollback()
+      return { status: 'schon-frei' }
+    }
+
+    const kosten = paketPreis(Number(paket.anzahl) || 0)
+    if (kosten <= 0) {
+      // Ein Paket ohne aktive Übungen: es gäbe nichts freizuschalten.
+      await conn.rollback()
+      return { status: 'leer' }
+    }
+    if (credits < kosten) {
+      await conn.rollback()
+      return { status: 'zu-wenig', kosten, credits }
+    }
+
+    await conn.query('UPDATE benutzer SET credits = credits - ? WHERE id = ?', [kosten, benutzerId])
+    await conn.query(
+      'INSERT IGNORE INTO benutzer_pakete (benutzer_id, paket_id) VALUES (?, ?)',
+      [benutzerId, paketId],
+    )
+
+    await conn.commit()
+    return { status: 'ok', kosten, credits: credits - kosten }
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
 }
 
 /* ── Zielgruppen ───────────────────────────────────────────────────────── */

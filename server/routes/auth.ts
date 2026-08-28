@@ -14,11 +14,17 @@ import { createSession, currentSession, destroySession } from '../sessions.js'
 export const authRouter: Router = Router()
 
 /** Die Form, in der ein Nutzer die Oberfläche erreicht — ohne Passwort-Hash. */
-async function toBenutzer(row: { id: number; email: string; name: string }): Promise<Benutzer> {
+async function toBenutzer(row: {
+  id: number
+  email: string
+  name: string
+  credits: number
+}): Promise<Benutzer> {
   return {
     id: row.id,
     email: row.email,
     name: row.name,
+    credits: row.credits,
     pakete: await paketNamenFuer(row.id),
   }
 }
@@ -111,9 +117,11 @@ authRouter.post('/registrieren', async (req, res) => {
     name,
     aktiv: true,
     passwortHash: await hashPassword(passwort),
-    // Ohne Zuordnung: die Freischaltung bleibt Sache des Betreibers.
+    // Ohne Zuordnung und ohne Guthaben: freigeschaltet wird über Credits oder
+    // durch den Betreiber, beides kommt nach der Registrierung.
     paketIds: [],
     videoIds: [],
+    credits: 0,
   })
 
   console.log(`[Auth] Neues Konto registriert: ${email}`)
@@ -121,7 +129,7 @@ authRouter.post('/registrieren', async (req, res) => {
   // Gleich angemeldet — ein Formular, nach dem man sich noch einmal anmelden
   // muss, ist eine überflüssige Hürde.
   createSession(res, 'user', String(id), false)
-  res.json({ user: { id, email, name, pakete: [] } })
+  res.json({ user: { id, email, name, pakete: [], credits: 0 } })
 })
 
 authRouter.post('/login', async (req, res) => {

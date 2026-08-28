@@ -5,8 +5,10 @@ import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import GButton from '@/components/ui/GButton.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useCreditsStore } from '@/stores/credits'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
+import { CREDITS_JE_VIDEO } from '@shared/types'
 
 /**
  * Die Abspielseite. Das <video>-Element zieht den Stream direkt von der API;
@@ -24,8 +26,20 @@ const route = useRoute()
 const auth = useAuthStore()
 const videos = useVideosStore()
 const fortschritt = useFortschrittStore()
+const credits = useCreditsStore()
+
+/* ── Freischalten gegen Credits ──────────────────────────────────────── */
+
+const guthaben = computed(() => auth.user?.credits ?? 0)
+const reichtDasGuthaben = computed(() => guthaben.value >= CREDITS_JE_VIDEO)
+
+async function freischalten(): Promise<void> {
+  await credits.kaufe('video', Number(route.params.id))
+}
 
 onMounted(() => {
+  // Meldungen eines früheren Kaufs gehören nicht an diese Übung.
+  credits.zuruecksetzen()
   void videos.ensureLoaded()
   // Ohne das bleibt der Stand beim direkten Aufruf dieser Seite leer — und
   // damit gäbe es nichts, wohin fortgesetzt werden könnte.
@@ -288,14 +302,44 @@ onBeforeUnmount(() => {
       -->
       <div v-if="!video.freigeschaltet" class="soon">
         <p class="t-h3">Noch nicht freigeschaltet</p>
-        <p class="soon-text">
-          Diese Übung gehört zu einem Paket, das für Sie noch nicht offen ist. Unter „Gehört zu"
-          sehen Sie, über welches Paket und welche Zielgruppe sie zugänglich wird.
-        </p>
-        <div v-if="!auth.isAuthenticated" class="soon-aktionen">
-          <GButton variant="dark" :to="{ name: 'registrieren' }">Konto anlegen</GButton>
-          <GButton variant="outline" :to="{ name: 'login' }">Anmelden</GButton>
-        </div>
+
+        <template v-if="auth.isAuthenticated">
+          <p class="soon-text">
+            Diese Übung kostet
+            {{ CREDITS_JE_VIDEO }} {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }} — Ihr
+            Guthaben beträgt {{ guthaben }}. Im Paket ist dieselbe Übung günstiger; unter „Gehört
+            zu" steht, zu welchen sie gehört.
+          </p>
+          <div class="soon-aktionen">
+            <GButton
+              variant="dark"
+              :disabled="credits.busy || !reichtDasGuthaben"
+              @click="freischalten"
+            >
+              {{
+                reichtDasGuthaben
+                  ? `Für ${CREDITS_JE_VIDEO} ${CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits'} freischalten`
+                  : 'Guthaben reicht nicht'
+              }}
+            </GButton>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="soon-text">
+            Diese Übung gehört zu einem Paket, das für Sie noch nicht offen ist. Unter „Gehört zu"
+            sehen Sie, über welches Paket und welche Zielgruppe sie zugänglich wird — mit einem
+            Konto lässt sie sich für
+            {{ CREDITS_JE_VIDEO }} {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }}
+            freischalten.
+          </p>
+          <div class="soon-aktionen">
+            <GButton variant="dark" :to="{ name: 'registrieren' }">Konto anlegen</GButton>
+            <GButton variant="outline" :to="{ name: 'login' }">Anmelden</GButton>
+          </div>
+        </template>
+
+        <p v-if="credits.fehler" class="kauf-fehler" role="alert">{{ credits.fehler }}</p>
       </div>
 
       <!-- Der eigentliche Schutz ist die Berechtigungsprüfung im Stream;
@@ -522,6 +566,11 @@ onBeforeUnmount(() => {
   font-size: var(--fs-secondary);
   color: var(--c-text-muted);
   line-height: 1.6;
+}
+
+.kauf-fehler {
+  font-size: var(--fs-secondary);
+  color: var(--c-red);
 }
 
 .soon-aktionen,

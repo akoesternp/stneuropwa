@@ -1,8 +1,11 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Router } from 'express'
+import type { Response } from 'express'
 import {
   darfVideoSehen,
+  kaufePaket,
+  kaufeVideo,
   katalogVideos,
   listBereiche,
   listZielgruppen,
@@ -10,6 +13,7 @@ import {
   paketInhalte,
   speichereFortschritt,
 } from '../db.js'
+import type { KaufErgebnis } from '../db.js'
 import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
 import { currentSession, requireUser } from '../sessions.js'
 import { formatiereDauer, parseDauer } from '../videodauer.js'
@@ -78,6 +82,61 @@ portalRouter.get('/pakete', async (req, res) => {
       }
     }),
   })
+})
+
+/**
+ * Freischalten gegen Credits — der Nutzer bedient sich selbst.
+ *
+ * Bewusst POST ohne Rumpf: was gekauft wird, steht in der Adresse, und was es
+ * kostet, entscheidet allein der Server. Ein Preis aus der Anfrage wäre eine
+ * Einladung, ihn zu setzen.
+ *
+ * Beide Endpunkte sind idempotent im Ergebnis, nicht in der Buchung: ein
+ * zweiter Aufruf für dasselbe Ziel bucht nichts ab, sondern antwortet mit 409.
+ */
+function antworteAufKauf(res: Response, ergebnis: KaufErgebnis): void {
+  switch (ergebnis.status) {
+    case 'ok':
+      res.json({ ok: true, kosten: ergebnis.kosten, credits: ergebnis.credits })
+      return
+    case 'zu-wenig':
+      res.status(402).json({
+        error: `Dafür brauchen Sie ${ergebnis.kosten} Credits, Ihr Guthaben beträgt ${ergebnis.credits}.`,
+        kosten: ergebnis.kosten,
+        credits: ergebnis.credits,
+      })
+      return
+    case 'schon-frei':
+      res.status(409).json({ error: 'Das ist für Sie bereits freigeschaltet.' })
+      return
+    case 'leer':
+      res.status(409).json({ error: 'Dieses Paket enthält derzeit keine Übungen.' })
+      return
+    default:
+      // Nicht vorhanden, nicht im Angebot, Konto gesperrt — alles dasselbe
+      // 404: der Endpunkt soll nicht verraten, welche IDs es gibt.
+      res.status(404).json({ error: 'Nicht gefunden.' })
+  }
+}
+
+portalRouter.post('/freischalten/video/:id', requireUser, async (req, res) => {
+  const videoId = Number(req.params.id)
+  if (!Number.isInteger(videoId) || videoId <= 0) {
+    res.status(404).json({ error: 'Nicht gefunden.' })
+    return
+  }
+
+  antworteAufKauf(res, await kaufeVideo(Number(req.session!.subject), videoId))
+})
+
+portalRouter.post('/freischalten/paket/:id', requireUser, async (req, res) => {
+  const paketId = Number(req.params.id)
+  if (!Number.isInteger(paketId) || paketId <= 0) {
+    res.status(404).json({ error: 'Nicht gefunden.' })
+    return
+  }
+
+  antworteAufKauf(res, await kaufePaket(Number(req.session!.subject), paketId))
 })
 
 /**

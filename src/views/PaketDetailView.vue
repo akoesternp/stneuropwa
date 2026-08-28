@@ -5,9 +5,11 @@ import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useCreditsStore } from '@/stores/credits'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { usePaketeStore } from '@/stores/pakete'
 import { dauerInSekunden } from '@/utils/format'
+import { CREDITS_JE_VIDEO } from '@shared/types'
 
 /**
  * Der Inhalt eines Pakets als Kachel-Übersicht, wie auf der Startseite.
@@ -21,8 +23,10 @@ const route = useRoute()
 const auth = useAuthStore()
 const pakete = usePaketeStore()
 const fortschritt = useFortschrittStore()
+const credits = useCreditsStore()
 
 onMounted(() => {
+  credits.zuruecksetzen()
   void pakete.ensureLoaded()
   if (auth.isAuthenticated) void fortschritt.reload()
 })
@@ -46,6 +50,15 @@ const offeneAnzahl = computed(
 const erledigtAnzahl = computed(
   () => paket.value?.videos.filter((video) => fortschritt.fuer(video.id)?.erledigt).length ?? 0,
 )
+
+/* ── Freischalten gegen Credits ──────────────────────────────────────── */
+
+const guthaben = computed(() => auth.user?.credits ?? 0)
+const reichtDasGuthaben = computed(() => guthaben.value >= (paket.value?.kosten ?? 0))
+
+async function freischalten(): Promise<void> {
+  if (paket.value) await credits.kaufe('paket', paket.value.id)
+}
 
 /** Anteil einer Übung am Fortschrittsbalken der Kachel. */
 function anteil(videoId: number, dauer: string): number {
@@ -104,16 +117,42 @@ function anteil(videoId: number, dauer: string): number {
         <h2 class="t-h3">
           {{ auth.isAuthenticated ? 'Noch nicht freigeschaltet' : 'Zugang erforderlich' }}
         </h2>
-        <p class="cta-text">
-          {{
-            auth.isAuthenticated
-              ? `${offeneAnzahl} Video${offeneAnzahl === 1 ? '' : 's'} aus diesem Paket ${offeneAnzahl === 1 ? 'ist' : 'sind'} Ihrem Zugang nicht zugewiesen. Wenden Sie sich an uns, um das Paket freizuschalten.`
-              : 'Melden Sie sich an, um die Videos dieses Pakets anzusehen — sofern es Ihrem Zugang zugewiesen ist.'
-          }}
-        </p>
-        <GButton v-if="!auth.isAuthenticated" variant="white" :to="{ name: 'login' }">
-          Anmelden
-        </GButton>
+
+        <template v-if="auth.isAuthenticated">
+          <p class="cta-text">
+            {{ offeneAnzahl }} von {{ paket.videos.length }} Übungen dieses Pakets
+            {{ offeneAnzahl === 1 ? 'ist' : 'sind' }} für Sie noch gesperrt. Das ganze Paket kostet
+            {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} — einzeln wären es
+            {{ paket.videos.length * CREDITS_JE_VIDEO }}. Ihr Guthaben beträgt {{ guthaben }}.
+          </p>
+          <div class="cta-knoepfe">
+            <GButton
+              variant="white"
+              :disabled="credits.busy || !reichtDasGuthaben"
+              @click="freischalten"
+            >
+              {{
+                reichtDasGuthaben
+                  ? `Paket für ${paket.kosten} ${paket.kosten === 1 ? 'Credit' : 'Credits'} freischalten`
+                  : 'Guthaben reicht nicht'
+              }}
+            </GButton>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="cta-text">
+            Mit einem Konto lässt sich dieses Paket für
+            {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} freischalten —
+            einzeln wären es {{ paket.videos.length * CREDITS_JE_VIDEO }}.
+          </p>
+          <div class="cta-knoepfe">
+            <GButton variant="white" :to="{ name: 'registrieren' }">Konto anlegen</GButton>
+            <GButton variant="white" :to="{ name: 'login' }">Anmelden</GButton>
+          </div>
+        </template>
+
+        <p v-if="credits.fehler" class="kauf-fehler" role="alert">{{ credits.fehler }}</p>
       </GCard>
     </template>
 
@@ -188,6 +227,19 @@ function anteil(videoId: number, dauer: string): number {
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
+}
+
+.cta-knoepfe {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Auf dem dunklen Verlauf trägt Rot nicht — hier zählt der helle Kontrast. */
+.kauf-fehler {
+  font-size: var(--fs-secondary);
+  color: var(--c-on-dark);
+  font-weight: 500;
 }
 
 .cta-text {

@@ -78,7 +78,14 @@ const vorschauVideos = computed(() =>
           </svg>
         </span>
 
+        <!--
+          Statt „Nicht freigeschaltet" der Preis: dass es zu ist, sagt schon
+          das Schloss — was es kostet, sagt sonst nichts auf dieser Karte.
+        -->
         <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
+        <span v-else-if="paket.kosten" class="marke preis">
+          {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }}
+        </span>
         <span v-else-if="auth.isAuthenticated" class="marke zu">Nicht freigeschaltet</span>
       </span>
     </div>
@@ -164,6 +171,11 @@ const vorschauVideos = computed(() =>
 .marke.zu {
   background: var(--c-surface);
   color: var(--c-text-muted);
+}
+.marke.preis {
+  background: var(--c-dark);
+  color: var(--c-on-dark);
+  font-variant-numeric: tabular-nums;
 }
 
 .beschreibung {

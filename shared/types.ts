@@ -35,6 +35,31 @@ export const STANDARD_BEREICHE = [
 export const SCHWIERIGKEITEN = ['leicht', 'mittel', 'schwer'] as const
 export type Schwierigkeit = (typeof SCHWIERIGKEITEN)[number]
 
+/* ── Credits ───────────────────────────────────────────────────────────── */
+
+/** Eine einzelne Übung kostet einen Credit. */
+export const CREDITS_JE_VIDEO = 1
+
+/** Im Paket ist dieselbe Übung günstiger — 20 % Nachlass auf den Einzelpreis. */
+export const PAKET_RABATT = 0.8
+
+/**
+ * Was ein Paket kostet: Anzahl der Übungen mal Einzelpreis, davon 80 %.
+ *
+ * Steht hier statt im Server, damit die Oberfläche denselben Preis nennt, den
+ * der Server abbucht — eine Kachel, die 5 verspricht und 6 kostet, wäre
+ * schlimmer als gar keine Angabe.
+ *
+ * Gerundet wird kaufmännisch, mindestens aber auf 1: ein Paket mit Inhalt darf
+ * nie umsonst sein. Gezählt werden alle aktiven Übungen des Pakets, auch
+ * bereits einzeln freigeschaltete — der Paketpreis hängt am Paket, nicht am
+ * Stand des Käufers.
+ */
+export function paketPreis(anzahlVideos: number): number {
+  if (anzahlVideos <= 0) return 0
+  return Math.max(1, Math.round(anzahlVideos * CREDITS_JE_VIDEO * PAKET_RABATT))
+}
+
 /**
  * Eine Zielgruppe bündelt Pakete UND einzelne Videos — die oberste Ebene der
  * Gliederung.
@@ -172,6 +197,8 @@ export interface PaketInhalt extends Paket {
   }[]
   /** Summe der Laufzeiten, z. B. "1:24:10" — leer, wenn eine Dauer fehlt. */
   gesamtdauer: string
+  /** Preis in Credits für das ganze Paket — vom Server nach `paketPreis`. */
+  kosten: number
 }
 
 /**
@@ -197,6 +224,11 @@ export interface Benutzer {
   name: string
   /** Namen der zugewiesenen Pakete — bestimmt, welche Kacheln er sieht. */
   pakete: string[]
+  /**
+   * Guthaben in Credits, mit dem sich Übungen und Pakete selbst freischalten
+   * lassen. Ein neues Konto startet bei 0.
+   */
+  credits: number
 }
 
 /** Ein Nutzer aus Sicht der Verwaltung (Backend). */
@@ -209,4 +241,6 @@ export interface BenutzerEintrag {
   paketIds: number[]
   /** IDs einzeln freigeschalteter Videos — zusätzlich zu den Paketen. */
   videoIds: number[]
+  /** Guthaben in Credits. Im Backend frei setzbar. */
+  credits: number
 }

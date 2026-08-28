@@ -23,6 +23,8 @@ interface Editor {
   aktiv: boolean
   paketIds: number[]
   videoIds: number[]
+  /** Guthaben in Credits. Im Formular Text, damit sich das Feld leeren lässt. */
+  credits: string
 }
 
 const editing = ref<Editor | null>(null)
@@ -36,11 +38,23 @@ const columns: Column[] = [
   { label: 'E-Mail', width: 'minmax(220px,1fr)' },
   { label: 'Name', width: 'minmax(160px,1fr)' },
   { label: 'Pakete', width: 'minmax(180px,1fr)' },
+  { label: 'Credits', align: 'right', width: '90px' },
   { label: 'Status', width: '110px' },
   { width: '210px' },
 ]
 
 const isNew = computed(() => editing.value !== null && editing.value.id === null)
+
+/**
+ * Das Guthaben als Zahl — ganz und nie negativ.
+ *
+ * Der Server prüft dasselbe noch einmal; hier steht es, damit das Formular
+ * zeigt, was gespeichert würde, statt still etwas anderes zu schicken.
+ */
+const guthaben = computed(() => {
+  const wert = Number(editing.value?.credits)
+  return Number.isFinite(wert) ? Math.max(0, Math.floor(wert)) : 0
+})
 
 async function load() {
   ;[rows.value, pakete.value, videos.value] = await Promise.all([
@@ -75,7 +89,15 @@ function startNew() {
   error.value = null
   newPassword.value = ''
   repeatPassword.value = ''
-  editing.value = { id: null, email: '', name: '', aktiv: true, paketIds: [], videoIds: [] }
+  editing.value = {
+    id: null,
+    email: '',
+    name: '',
+    aktiv: true,
+    paketIds: [],
+    videoIds: [],
+    credits: '0',
+  }
 }
 
 function startEdit(row: BenutzerEintrag) {
@@ -83,7 +105,12 @@ function startEdit(row: BenutzerEintrag) {
   error.value = null
   newPassword.value = ''
   repeatPassword.value = ''
-  editing.value = { ...row, paketIds: [...row.paketIds], videoIds: [...row.videoIds] }
+  editing.value = {
+    ...row,
+    paketIds: [...row.paketIds],
+    videoIds: [...row.videoIds],
+    credits: String(row.credits),
+  }
 }
 
 function togglePaket(id: number) {
@@ -128,6 +155,7 @@ async function save() {
       passwort: newPassword.value,
       paketIds: editing.value.paketIds,
       videoIds: editing.value.videoIds,
+      credits: guthaben.value,
     })
     await load()
     notice.value = `${editing.value.email} gespeichert.`
@@ -191,6 +219,14 @@ async function remove(row: BenutzerEintrag) {
           label="Passwort wiederholen"
           type="password"
           autocomplete="new-password"
+          compact
+        />
+        <!-- Guthaben, mit dem sich der Nutzer selbst Übungen und Pakete
+             freischaltet. Ganze Zahl, nie negativ — das erzwingt `guthaben`. -->
+        <GField
+          v-model="editing.credits"
+          label="Credits (Guthaben zum Freischalten)"
+          type="number"
           compact
         />
       </div>
@@ -259,6 +295,7 @@ async function remove(row: BenutzerEintrag) {
         <span class="mail t-truncate">{{ row.email }}</span>
         <span class="muted t-truncate">{{ row.name || '—' }}</span>
         <span class="muted t-truncate">{{ paketNamen(row) }}</span>
+        <span class="credits">{{ row.credits }}</span>
         <span :class="row.aktiv ? 'ok' : 'flag'">{{ row.aktiv ? 'aktiv' : 'gesperrt' }}</span>
         <div class="row-actions">
           <GButton variant="ghost" size="sm" @click="startEdit(row)">Bearbeiten</GButton>
@@ -370,6 +407,12 @@ async function remove(row: BenutzerEintrag) {
 .muted {
   font-size: var(--fs-secondary);
   color: var(--c-text-muted);
+}
+
+.credits {
+  font-size: var(--fs-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .ok {

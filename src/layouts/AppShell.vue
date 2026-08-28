@@ -49,6 +49,17 @@ async function logout() {
                 }}</span>
               </span>
             </span>
+
+            <!--
+              Das Guthaben gehört neben den Namen: es entscheidet an jeder
+              gesperrten Kachel darüber, ob die Schaltfläche dort etwas nützt.
+            -->
+            <span class="guthaben" :title="`Guthaben zum Freischalten`">
+              <span class="guthaben-zahl">{{ auth.user?.credits ?? 0 }}</span>
+              <span class="t-meta">{{
+                (auth.user?.credits ?? 0) === 1 ? 'Credit' : 'Credits'
+              }}</span>
+            </span>
             <GButton variant="outline" size="sm" @click="logout">Abmelden</GButton>
           </template>
 
@@ -201,6 +212,25 @@ async function logout() {
 .who {
   font-size: var(--fs-secondary);
   font-weight: 500;
+}
+
+/* Dunkel abgesetzt: das Guthaben ist eine Zahl, die sich ändert — sie soll
+   auffallen, wenn sie es tut. */
+.guthaben {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: none;
+  padding: 7px 14px;
+  border-radius: var(--r-nav);
+  background: var(--c-dark);
+  color: var(--c-on-dark);
+}
+
+.guthaben-zahl {
+  font-size: var(--fs-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Inhalt / Fußzeile ─────────────────────────────────────────────── */
