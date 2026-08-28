@@ -68,7 +68,7 @@ export function paketPreis(anzahlVideos: number): number {
  * Alles in Cent und ganzzahlig: Preise als Fließkommazahl führen früher oder
  * später zu 19,999999 auf einer Rechnung.
  */
-export const CREDIT_BASISPREIS_CENT = 200
+export const CREDIT_BASISPREIS_CENT = 100
 
 /** Eine Stufe der Rabattstaffel. */
 export interface CreditPaket {
@@ -91,10 +91,10 @@ export interface CreditPaket {
  * genügt es, hier Zahlen zu tauschen; Oberfläche und Server ziehen nach.
  */
 export const CREDIT_PAKETE: readonly CreditPaket[] = [
-  { id: 'start', name: 'Zum Ausprobieren', credits: 5, preisCent: 1000 },
-  { id: 'klein', name: 'Kleines Paket', credits: 15, preisCent: 2700 },
-  { id: 'gross', name: 'Großes Paket', credits: 40, preisCent: 6400 },
-  { id: 'jahr', name: 'Jahresvorrat', credits: 100, preisCent: 14000 },
+  { id: 'start', name: 'Zum Ausprobieren', credits: 5, preisCent: 500 },
+  { id: 'klein', name: 'Kleines Paket', credits: 15, preisCent: 1350 },
+  { id: 'gross', name: 'Großes Paket', credits: 40, preisCent: 3200 },
+  { id: 'jahr', name: 'Jahresvorrat', credits: 100, preisCent: 7000 },
 ] as const
 
 export function creditPaket(id: string): CreditPaket | undefined {
