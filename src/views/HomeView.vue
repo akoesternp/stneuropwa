@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
@@ -19,6 +19,8 @@ import type { Video } from '@/types'
  * Übung — deshalb Suche und Filter oben, und darunter nach Paketen gegliedert
  * statt alles in einem Topf.
  */
+const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
 const fortschritt = useFortschrittStore()
@@ -33,8 +35,13 @@ const suche = ref('')
  * die gewohnten Filter — und suchen innerhalb dieses Ausschnitts.
  *
  * Bewusst nur EINE: „für wen ist das" hat eine Antwort, keine Menge.
+ *
+ * Sie steht in der Adresse (?zielgruppe=…) und nicht in einem eigenen Zustand:
+ * damit übersteht die Wahl ein Neuladen, lässt sich verlinken, und der
+ * Zurück-Knopf des Browsers tut das Erwartbare. Die Adresse ist die einzige
+ * Quelle — so kann nichts auseinanderlaufen.
  */
-const zielgruppe = ref('')
+const zielgruppe = computed(() => String(route.query.zielgruppe ?? ''))
 const bereichFilter = ref<string[]>([])
 const schwierigkeitFilter = ref<string[]>([])
 
@@ -76,14 +83,32 @@ function zuruecksetzen() {
 
 /** Zurück zur Auswahl — dabei fallen auch die Filter darunter weg. */
 function zielgruppeVerlassen() {
-  zielgruppe.value = ''
-  zuruecksetzen()
+  const { zielgruppe: _entfernt, ...rest } = route.query
+  void router.push({ query: rest })
 }
 
 function waehleZielgruppe(name: string) {
-  zielgruppe.value = name
-  zuruecksetzen()
+  void router.push({ query: { ...route.query, zielgruppe: name } })
 }
+
+/*
+ * Beim Wechsel der Zielgruppe die Merkmalsfilter zurücksetzen — sonst stünde
+ * man im neuen Ausschnitt vor einer leeren Liste, ohne zu sehen, warum. Am
+ * Wechsel der Adresse aufgehängt, damit es auch beim Zurück-Knopf greift.
+ */
+watch(zielgruppe, zuruecksetzen)
+
+/**
+ * Eine Zielgruppe, die es nicht (mehr) gibt — etwa aus einem alten Lesezeichen
+ * oder nach dem Umbenennen. Ohne Hinweis stünde man vor einer leeren Seite und
+ * hielte den Bestand für leer.
+ */
+const zielgruppeUnbekannt = computed(
+  () =>
+    videos.loaded &&
+    zielgruppe.value !== '' &&
+    !videos.zielgruppen.some((eintrag) => eintrag.name === zielgruppe.value),
+)
 
 /** Der Ausschnitt, in dem alles Weitere stattfindet. */
 const imAusschnitt = computed(() =>
@@ -318,6 +343,13 @@ const abschnitte = computed<Abschnitt[]>(() => {
         </GButton>
       </div>
     </div>
+
+    <p v-if="zielgruppeUnbekannt" class="state warn" role="alert">
+      Die Zielgruppe „{{ zielgruppe }}" gibt es nicht mehr.
+      <button type="button" class="ausschnitt-weg" @click="zielgruppeVerlassen">
+        Alle Zielgruppen ansehen
+      </button>
+    </p>
 
     <p v-if="videos.error" class="state error" role="alert">{{ videos.error }}</p>
     <p v-else-if="!videos.loaded" class="state">Inhalte werden geladen …</p>
@@ -648,6 +680,10 @@ const abschnitte = computed<Abschnitt[]>(() => {
 
 .state.error {
   color: var(--c-red);
+}
+
+.state.warn {
+  color: var(--c-orange);
 }
 
 .grid {
