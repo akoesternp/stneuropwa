@@ -135,6 +135,7 @@ export interface PaketInhalt extends Paket {
     dauer: string
     bereich: string
     schwierigkeit: string
+    hilfsmittel: string
     /** Darf der aktuelle Aufrufer dieses Video abspielen? */
     freigeschaltet: boolean
     /** Liegt überhaupt schon eine Videodatei vor? Der Name bleibt intern. */

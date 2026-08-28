@@ -893,6 +893,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
       dauer: string
       bereich: string
       schwierigkeit: string
+      hilfsmittel: string
       freigeschaltet: boolean
       hatDatei: boolean
     }[]
@@ -909,7 +910,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
 
   const zeilen: Record<string, unknown>[] = await getPool().query(
     `SELECT vp.paket_id, v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei,
-            v.bereich, v.schwierigkeit,
+            v.bereich, v.schwierigkeit, v.hilfsmittel,
             ${benutzerId === null ? OEFFENTLICH : SICHTBAR_FUER_NUTZER} AS freigeschaltet
      FROM video_pakete vp
      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
@@ -955,6 +956,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
         dauer: String(zeile.dauer ?? ''),
         bereich: String(zeile.bereich ?? ''),
         schwierigkeit: String(zeile.schwierigkeit ?? ''),
+        hilfsmittel: String(zeile.hilfsmittel ?? ''),
         freigeschaltet: Number(zeile.freigeschaltet) === 1,
         // Nur ob eine Datei hinterlegt ist — der Dateiname bleibt intern.
         hatDatei: String(zeile.datei ?? '') !== '',

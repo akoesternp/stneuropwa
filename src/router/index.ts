@@ -90,14 +90,15 @@ const router = createRouter({
           meta: { public: true },
         },
         {
-          // Das Angebot darf jeder sehen: Titel und Laufzeiten sind die
-          // Beschreibung eines Pakets, nicht sein Inhalt.
-          path: 'pakete',
-          name: 'pakete',
-          component: () => import('@/views/PaketeView.vue'),
-          meta: { public: true },
-        },
-        {
+          /*
+           * Die Paketübersicht steht auf der Startseite; nur die Einzelansicht
+           * hat noch eine eigene Adresse. Ein Lesezeichen auf /pakete landet
+           * über den Auffangpfad wieder auf der Startseite — dort steht die
+           * Übersicht ja.
+           *
+           * Das Angebot darf jeder sehen: Titel und Laufzeiten sind die
+           * Beschreibung eines Pakets, nicht sein Inhalt.
+           */
           path: 'pakete/:id',
           name: 'paket',
           component: () => import('@/views/PaketDetailView.vue'),

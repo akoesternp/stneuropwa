@@ -64,7 +64,7 @@ function anteil(videoId: number, dauer: string): number {
     <template v-else-if="paket">
       <header class="head">
         <div class="titles">
-          <RouterLink :to="{ name: 'pakete' }" class="zurueck t-meta">← Alle Pakete</RouterLink>
+          <RouterLink :to="{ name: 'home' }" class="zurueck t-meta">← Zur Übersicht</RouterLink>
           <h1 class="t-h2">{{ paket.name }}</h1>
           <p v-if="paket.beschreibung" class="t-subhead">{{ paket.beschreibung }}</p>
           <p class="umfang t-meta">
@@ -119,7 +119,7 @@ function anteil(videoId: number, dauer: string): number {
 
     <div v-else class="missing">
       <p class="t-h3">Dieses Paket gibt es nicht.</p>
-      <GButton variant="outline" :to="{ name: 'pakete' }">Zur Paketübersicht</GButton>
+      <GButton variant="outline" :to="{ name: 'home' }">Zur Übersicht</GButton>
     </div>
   </section>
 </template>
