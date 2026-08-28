@@ -1,7 +1,14 @@
 import { Router } from 'express'
+import type { Request } from 'express'
 import type { Benutzer } from '../../shared/types.js'
-import { findAdmin, findBenutzerByEmail, findBenutzerById, paketNamenFuer } from '../db.js'
-import { verifyPassword } from '../passwords.js'
+import {
+  findAdmin,
+  findBenutzerByEmail,
+  findBenutzerById,
+  paketNamenFuer,
+  saveBenutzer,
+} from '../db.js'
+import { hashPassword, verifyPassword } from '../passwords.js'
 import { createSession, currentSession, destroySession } from '../sessions.js'
 
 export const authRouter: Router = Router()
@@ -15,6 +22,107 @@ async function toBenutzer(row: { id: number; email: string; name: string }): Pro
     pakete: await paketNamenFuer(row.id),
   }
 }
+
+/**
+ * Selbstregistrierung.
+ *
+ * Ein neues Konto bekommt weder Pakete noch Einzelfreischaltungen — es sieht
+ * damit genau das, was auch ohne Anmeldung sichtbar ist. Der Gewinn liegt
+ * woanders: das Portal merkt sich ab jetzt den Trainingsfortschritt, und der
+ * Betreiber kann dem Konto später Pakete zuweisen.
+ *
+ * Abschaltbar über REGISTRIERUNG=0 — falls Zugänge doch nur persönlich
+ * vergeben werden sollen.
+ */
+const REGISTRIERUNG_OFFEN = process.env.REGISTRIERUNG !== '0'
+
+/** Kürzer ergibt bei einem Zugang, der Inhalte freischaltet, keinen Sinn. */
+const MIN_PASSWORT_LAENGE = 8
+
+/*
+ * Grobe Bremse gegen das Vollschreiben der Benutzertabelle. Bewusst im
+ * Speicher: bei einem einzelnen Prozess genügt das, und eine Tabelle dafür
+ * wäre mehr Pflege als Nutzen. Ein Neustart setzt die Zähler zurück — das ist
+ * hinnehmbar, hier geht es um Fluten, nicht um Feinsteuerung.
+ */
+const VERSUCHE_JE_STUNDE = 5
+const FENSTER_MS = 60 * 60 * 1000
+const versuche = new Map<string, { anzahl: number; bis: number }>()
+
+function zuVieleVersuche(req: Request): boolean {
+  const schluessel = req.ip ?? 'unbekannt'
+  const jetzt = Date.now()
+  const eintrag = versuche.get(schluessel)
+
+  if (!eintrag || eintrag.bis <= jetzt) {
+    versuche.set(schluessel, { anzahl: 1, bis: jetzt + FENSTER_MS })
+    // Abgelaufene Einträge nebenbei wegräumen, damit die Karte nicht wächst.
+    for (const [key, wert] of versuche) if (wert.bis <= jetzt) versuche.delete(key)
+    return false
+  }
+
+  eintrag.anzahl += 1
+  return eintrag.anzahl > VERSUCHE_JE_STUNDE
+}
+
+authRouter.post('/registrieren', async (req, res) => {
+  if (!REGISTRIERUNG_OFFEN) {
+    res.status(403).json({ error: 'Zugänge werden derzeit nur persönlich vergeben.' })
+    return
+  }
+
+  const email = String(req.body?.email ?? '').trim().toLowerCase()
+  const passwort = String(req.body?.passwort ?? '')
+  const name = String(req.body?.name ?? '').trim().slice(0, 255)
+
+  // Bewusst keine strenge Prüfung: Adressen sind vielgestaltiger, als jede
+  // Regel abbildet. Was zählt, ist die Eindeutigkeit in der Datenbank.
+  if (!email.includes('@') || email.length < 5) {
+    res.status(400).json({ error: 'Bitte eine gültige E-Mail-Adresse angeben.' })
+    return
+  }
+  if (passwort.length < MIN_PASSWORT_LAENGE) {
+    res.status(400).json({
+      error: `Das Passwort braucht mindestens ${MIN_PASSWORT_LAENGE} Zeichen.`,
+    })
+    return
+  }
+
+  if (zuVieleVersuche(req)) {
+    res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut probieren.' })
+    return
+  }
+
+  /*
+   * Dass eine belegte Adresse als solche gemeldet wird, verrät, wer hier ein
+   * Konto hat. Die Alternative wäre eine Bestätigungsmail — die es ohne
+   * Postfach nicht gibt. Bis dahin ist die verständliche Meldung die bessere
+   * Wahl als ein Formular, das ohne Erklärung nicht weitergeht.
+   */
+  if (await findBenutzerByEmail(email)) {
+    res.status(409).json({
+      error: 'Für diese E-Mail-Adresse gibt es bereits einen Zugang. Bitte anmelden.',
+    })
+    return
+  }
+
+  const id = await saveBenutzer(null, {
+    email,
+    name,
+    aktiv: true,
+    passwortHash: await hashPassword(passwort),
+    // Ohne Zuordnung: die Freischaltung bleibt Sache des Betreibers.
+    paketIds: [],
+    videoIds: [],
+  })
+
+  console.log(`[Auth] Neues Konto registriert: ${email}`)
+
+  // Gleich angemeldet — ein Formular, nach dem man sich noch einmal anmelden
+  // muss, ist eine überflüssige Hürde.
+  createSession(res, 'user', String(id), false)
+  res.json({ user: { id, email, name, pakete: [] } })
+})
 
 authRouter.post('/login', async (req, res) => {
   const { email = '', password = '', remember = false } = req.body ?? {}

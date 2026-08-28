@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import GLogo from '@/components/ui/GLogo.vue'
@@ -8,31 +8,56 @@ import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 
-const route = useRoute()
+/**
+ * Selbstregistrierung.
+ *
+ * Ein neues Konto bekommt bewusst nichts zugeordnet — es sieht zunächst genau
+ * das, was auch ohne Anmeldung sichtbar ist. Das steht auch so im Formular:
+ * eine Anmeldung, nach der scheinbar nichts passiert, wäre sonst eine
+ * Enttäuschung.
+ */
 const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
 const fortschritt = useFortschrittStore()
 
-const expired = computed(() => route.query.abgelaufen === '1')
+/** Muss zum Server passen (MIN_PASSWORT_LAENGE in routes/auth.ts). */
+const MIN_LAENGE = 8
 
+const name = ref('')
 const email = ref('')
-const password = ref('')
-const staySignedIn = ref(false)
+const passwort = ref('')
+const wiederholung = ref('')
+const fehler = ref<string | null>(null)
+
+const zuKurz = computed(() => passwort.value.length > 0 && passwort.value.length < MIN_LAENGE)
+const ungleich = computed(
+  () => wiederholung.value.length > 0 && passwort.value !== wiederholung.value,
+)
 
 async function onSubmit() {
-  const ok = await auth.login(email.value, password.value, staySignedIn.value)
-  if (ok) {
-    // Mit der Sitzung ändert sich, was der Server herausgibt.
-    await Promise.all([videos.reload(), fortschritt.reload()])
-    // Zurück dorthin, wo die Anmeldung abgefangen hat — sonst zur Startseite.
-    router.push(auth.anmeldeZielFuer('portal'))
+  fehler.value = null
+
+  // Tippfehler im verdeckten Feld fielen sonst erst bei der nächsten Anmeldung auf.
+  if (passwort.value !== wiederholung.value) {
+    fehler.value = 'Die beiden Passwörter stimmen nicht überein.'
+    return
   }
+
+  const ok = await auth.registrieren(email.value, passwort.value, name.value)
+  if (!ok) {
+    fehler.value = auth.error
+    return
+  }
+
+  // Mit der Sitzung ändert sich, was der Server herausgibt.
+  await Promise.all([videos.reload(), fortschritt.reload()])
+  router.push({ name: 'home' })
 }
 </script>
 
 <template>
-  <div class="login">
+  <div class="seite">
     <section class="hero">
       <div class="brand">
         <GLogo :width="150" :height="52" tone="light" />
@@ -40,27 +65,28 @@ async function onSubmit() {
       </div>
 
       <div class="pitch">
-        <h1>Ihre Inhalte. Ihr Tempo.</h1>
+        <h1>Konto anlegen</h1>
         <p>
-          Melden Sie sich an, um die Videos Ihrer gebuchten Pakete freizuschalten — jederzeit,
-          auf jedem Gerät.
+          Mit einem eigenen Konto merkt sich das Portal, welche Übungen Sie schon gemacht haben
+          und wo Sie stehengeblieben sind.
         </p>
       </div>
 
       <p class="hint t-meta">
-        Noch keinen Zugang? Ein Konto ist in einer Minute angelegt — die frei verfügbaren
-        Übungen stehen sofort bereit.
+        Zunächst sind die frei verfügbaren Übungen zugänglich. Weitere Pakete schalten wir Ihnen
+        auf Wunsch frei.
       </p>
     </section>
 
     <section class="pane">
       <form class="form" @submit.prevent="onSubmit">
         <div class="intro">
-          <h2 class="t-h2">Anmelden</h2>
-          <p class="t-subhead">Zugang zum Videoportal.</p>
+          <h2 class="t-h2">Registrieren</h2>
+          <p class="t-subhead">Ein paar Angaben genügen.</p>
         </div>
 
         <div class="fields">
+          <GField v-model="name" label="Name (optional)" autocomplete="name" />
           <GField
             v-model="email"
             label="E-Mail-Adresse"
@@ -70,46 +96,40 @@ async function onSubmit() {
             required
           />
           <GField
-            v-model="password"
+            v-model="passwort"
             label="Passwort"
             type="password"
-            placeholder="••••••••"
-            autocomplete="current-password"
+            :placeholder="`mindestens ${MIN_LAENGE} Zeichen`"
+            autocomplete="new-password"
             required
           />
-          <label
-            class="stay"
-            title="Hält die Anmeldung 30 Tage. Ohne Haken endet sie, sobald Sie den Browser schließen."
-          >
-            <input v-model="staySignedIn" type="checkbox" />
-            Angemeldet bleiben
-          </label>
+          <p v-if="zuKurz" class="feldhinweis">
+            Noch zu kurz — mindestens {{ MIN_LAENGE }} Zeichen.
+          </p>
+
+          <GField
+            v-model="wiederholung"
+            label="Passwort wiederholen"
+            type="password"
+            autocomplete="new-password"
+            required
+          />
+          <p v-if="ungleich" class="feldhinweis">Die beiden Passwörter stimmen noch nicht überein.</p>
         </div>
 
-        <p v-if="expired" class="expired">Ihre Sitzung ist abgelaufen. Bitte erneut anmelden.</p>
+        <GButton type="submit" class="submit" :disabled="auth.pending">Konto anlegen</GButton>
 
-        <GButton type="submit" class="submit" :disabled="auth.pending">Anmelden</GButton>
-
-        <p v-if="auth.error" class="error" role="alert">{{ auth.error }}</p>
+        <p v-if="fehler" class="error" role="alert">{{ fehler }}</p>
 
         <div class="divider" />
 
         <p class="t-subhead">
-          Noch kein Konto?
-          <RouterLink :to="{ name: 'registrieren' }">Jetzt registrieren</RouterLink> — die frei
-          verfügbaren Übungen sind sofort zugänglich.
+          Schon ein Konto? <RouterLink :to="{ name: 'login' }">Zur Anmeldung</RouterLink>
         </p>
 
         <div class="legal t-meta">
           <a href="#impressum">Impressum</a>
           <a href="#datenschutz">Datenschutz</a>
-
-          <!--
-            Zugang zur Verwaltung. Bewusst unauffällig und rechts abgesetzt —
-            für Nutzer ohne Belang, für den Betreiber der kürzeste Weg. Der
-            Router schickt Unangemeldete ohnehin auf die Backend-Anmeldung.
-          -->
-          <RouterLink :to="{ name: 'admin-users' }" class="backend">Verwaltung</RouterLink>
         </div>
       </form>
     </section>
@@ -117,14 +137,13 @@ async function onSubmit() {
 </template>
 
 <style scoped>
-.login {
+.seite {
   display: grid;
   grid-template-columns: 1.05fr 1fr;
   min-height: 100vh;
   background: var(--c-white);
 }
 
-/* ── Links: Verlaufs-Hero ──────────────────────────────────────────── */
 .hero {
   background: var(--gradient);
   color: var(--c-white);
@@ -171,9 +190,9 @@ async function onSubmit() {
 
 .hint {
   color: var(--c-on-dark-faint);
+  max-width: 46ch;
 }
 
-/* ── Rechts: Formular ──────────────────────────────────────────────── */
 .pane {
   display: flex;
   align-items: center;
@@ -201,28 +220,15 @@ async function onSubmit() {
   gap: 16px;
 }
 
-.stay {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  color: var(--c-text-dark);
-  font-size: var(--fs-body);
-}
-
-.stay input {
-  width: 17px;
-  height: 17px;
-  accent-color: var(--c-action);
+/* Hinweis direkt am Feld statt erst nach dem Absenden. */
+.feldhinweis {
+  margin-top: -8px;
+  font-size: var(--fs-secondary);
+  color: var(--c-orange);
 }
 
 .submit {
   align-self: flex-start;
-}
-
-.expired {
-  font-size: var(--fs-secondary);
-  color: var(--c-orange);
 }
 
 .error {
@@ -245,24 +251,8 @@ async function onSubmit() {
   color: var(--c-text-muted);
 }
 
-/* Rechts abgesetzt, damit es die Rechtstexte nicht verdrängt. */
-.backend {
-  margin-left: auto;
-  padding: 4px 12px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-pill);
-  color: var(--c-text-muted);
-}
-
-.backend:hover {
-  border-color: var(--c-action);
-  color: var(--c-action);
-  text-decoration: none;
-}
-
-/* Unterhalb der Tablet-Breite stapelt der Hero über dem Formular. */
 @media (max-width: 900px) {
-  .login {
+  .seite {
     grid-template-columns: 1fr;
   }
 

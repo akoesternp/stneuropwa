@@ -13,6 +13,12 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/registrieren',
+      name: 'registrieren',
+      component: () => import('@/views/RegistrierenView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/admin/login',
       name: 'admin-login',
       component: () => import('@/views/admin/AdminLoginView.vue'),
@@ -123,7 +129,9 @@ router.beforeEach((to) => {
   }
 
   // Wer schon angemeldet ist, hat auf einer Anmeldeseite nichts verloren.
-  if (to.name === 'login' && auth.isAuthenticated) return { name: 'home' }
+  if ((to.name === 'login' || to.name === 'registrieren') && auth.isAuthenticated) {
+    return { name: 'home' }
+  }
   if (to.name === 'admin-login' && auth.isAdmin) return { name: 'admin-users' }
 
   return true

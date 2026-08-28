@@ -102,6 +102,37 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * Selbstregistrierung. Der Server legt das Konto an und meldet gleich an —
+   * ein Formular, nach dem man sich noch einmal anmelden muss, wäre eine
+   * überflüssige Hürde.
+   */
+  async function registrieren(
+    email: string,
+    passwort: string,
+    name: string,
+  ): Promise<boolean> {
+    pending.value = true
+    error.value = null
+    try {
+      const result = await api.post<{ user: Benutzer }>('/auth/registrieren', {
+        email,
+        passwort,
+        name,
+      })
+      user.value = result.user
+      return true
+    } catch (cause) {
+      error.value =
+        cause instanceof ApiError
+          ? cause.message
+          : 'Registrierung derzeit nicht möglich. Bitte später erneut versuchen.'
+      return false
+    } finally {
+      pending.value = false
+    }
+  }
+
   async function loginAdmin(benutzer: string, password: string): Promise<boolean> {
     pending.value = true
     error.value = null
@@ -164,6 +195,7 @@ export const useAuthStore = defineStore('auth', () => {
     anmeldeZielFuer,
     restore,
     login,
+    registrieren,
     loginAdmin,
     logout,
     logoutAdmin,

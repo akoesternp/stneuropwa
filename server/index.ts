@@ -36,6 +36,14 @@ await initSessions()
 const app = express()
 
 app.disable('x-powered-by')
+
+/*
+ * Hinter dem Reverse Proxy steht in req.ip sonst dessen Adresse — die Bremse
+ * für die Registrierung würde damit für alle Besucher gemeinsam greifen.
+ * Vertraut wird nur der Schleife: X-Forwarded-For zählt nur, wenn die
+ * Verbindung von localhost kommt, also vom eigenen Apache.
+ */
+app.set('trust proxy', 'loopback')
 app.use(express.json({ limit: '1mb' }))
 
 /*

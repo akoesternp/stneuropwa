@@ -52,7 +52,12 @@ async function logout() {
             <GButton variant="outline" size="sm" @click="logout">Abmelden</GButton>
           </template>
 
-          <GButton v-else variant="dark" size="sm" :to="{ name: 'login' }">Anmelden</GButton>
+          <template v-else>
+            <GButton variant="outline" size="sm" :to="{ name: 'registrieren' }">
+              Registrieren
+            </GButton>
+            <GButton variant="dark" size="sm" :to="{ name: 'login' }">Anmelden</GButton>
+          </template>
         </div>
       </div>
     </header>
