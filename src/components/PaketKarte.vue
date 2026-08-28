@@ -204,7 +204,14 @@ const vorschauVideos = computed(() =>
  */
 .vorschau.mehr {
   position: relative;
-  max-height: calc(var(--kopfrand) + 3 * var(--zeile) + 3 * var(--abstand) + 9px);
+  /*
+   * `--blick` ist der stehengelassene Streifen der vierten Zeile. Bei 21 px
+   * Zeilenhöhe sitzen die Buchstaben etwa zwischen 3 und 17 px — 15 px lassen
+   * also die obere Hälfte des Titels sehen, was den Bruch erst erzählt.
+   */
+  --blick: 15px;
+
+  max-height: calc(var(--kopfrand) + 3 * var(--zeile) + 3 * var(--abstand) + var(--blick));
   overflow: hidden;
 }
 
@@ -212,7 +219,12 @@ const vorschauVideos = computed(() =>
   content: '';
   position: absolute;
   inset: auto 0 0;
-  height: 30px;
+  /*
+   * Kürzer als der Streifen hoch ist, damit dessen obere Kante frei bleibt.
+   * Ein langer Verlauf deckte den vierten Titel vollständig zu — dann sähe man
+   * nur noch einen Schleier und nicht, dass dort Text steht.
+   */
+  height: 20px;
   /*
    * Von durchsichtigem Weiß nach Weiß statt von `transparent`: die Kartenfläche
    * ist weiß, und so bleibt der Verlauf frei von einem Graustich.
