@@ -7,6 +7,12 @@ export type {
   Video,
 } from '@shared/types'
 
+/**
+ * Filter nach dem eigenen Zugang: '' = alle, sonst nur freigeschaltete bzw.
+ * nur gesperrte Übungen.
+ */
+export type Zugangsfilter = '' | 'frei' | 'gesperrt'
+
 /** Spaltendefinition der DataTable. */
 export interface Column {
   label?: string

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import GButton from '@/components/ui/GButton.vue'
 import { SCHWIERIGKEITEN } from '@shared/types'
+import type { Zugangsfilter } from '@/types'
 
 /**
  * Suchfeld und Merkmalsfilter — gemeinsam genutzt von der Startseite und der
@@ -16,14 +17,27 @@ const suche = defineModel<string>('suche', { required: true })
 const bereiche = defineModel<string[]>('bereiche', { required: true })
 const grade = defineModel<string[]>('grade', { required: true })
 
+/**
+ * Der eigene Zugang als Filter — nur dort eingeblendet, wo `mitZugang` gesetzt
+ * ist. Anders als Bereich und Schwierigkeit ist das kein Merkmal der Übung,
+ * sondern eines des Betrachters: „was kann ich jetzt sofort machen".
+ */
+const zugang = defineModel<Zugangsfilter>('zugang', { default: '' })
+
 defineProps<{
   /** Die gepflegten Trainingsbereiche, in der Reihenfolge des Backends. */
   verfuegbareBereiche: string[]
   platzhalter?: string
+  /** Blendet die Knöpfe „Freigeschaltet" / „Gesperrt" ein. */
+  mitZugang?: boolean
 }>()
 
 const aktiv = computed(
-  () => suche.value.trim().length > 0 || bereiche.value.length > 0 || grade.value.length > 0,
+  () =>
+    suche.value.trim().length > 0 ||
+    bereiche.value.length > 0 ||
+    grade.value.length > 0 ||
+    zugang.value !== '',
 )
 
 function umschalten(liste: string[], wert: string) {
@@ -32,10 +46,16 @@ function umschalten(liste: string[], wert: string) {
   else liste.splice(index, 1)
 }
 
+/** Die beiden Zugangsknöpfe schließen einander aus; ein zweiter Klick löst. */
+function zugangUmschalten(wert: Zugangsfilter) {
+  zugang.value = zugang.value === wert ? '' : wert
+}
+
 function zuruecksetzen() {
   suche.value = ''
   bereiche.value = []
   grade.value = []
+  zugang.value = ''
 }
 </script>
 
@@ -78,6 +98,29 @@ function zuruecksetzen() {
       >
         {{ grad }}
       </button>
+
+      <template v-if="mitZugang">
+        <span class="trenner" aria-hidden="true" />
+
+        <button
+          type="button"
+          class="chip"
+          :class="{ an: zugang === 'frei' }"
+          :aria-pressed="zugang === 'frei'"
+          @click="zugangUmschalten('frei')"
+        >
+          Freigeschaltet
+        </button>
+        <button
+          type="button"
+          class="chip"
+          :class="{ an: zugang === 'gesperrt' }"
+          :aria-pressed="zugang === 'gesperrt'"
+          @click="zugangUmschalten('gesperrt')"
+        >
+          Gesperrt
+        </button>
+      </template>
 
       <GButton v-if="aktiv" variant="text" @click="zuruecksetzen">Zurücksetzen</GButton>
     </div>

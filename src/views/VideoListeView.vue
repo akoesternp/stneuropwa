@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
-import type { KatalogVideo } from '@/types'
+import type { KatalogVideo, Zugangsfilter } from '@/types'
 
 /**
  * Alle Übungen am Stück — für die Suche nach einer einzelnen.
@@ -29,6 +29,7 @@ const fortschritt = useFortschrittStore()
 const suche = ref('')
 const bereichFilter = ref<string[]>([])
 const schwierigkeitFilter = ref<string[]>([])
+const zugangFilter = ref<Zugangsfilter>('')
 
 onMounted(() => {
   void videos.ensureLoaded()
@@ -47,6 +48,8 @@ const treffer = computed(() => {
   const begriff = suche.value.trim().toLowerCase()
 
   return videos.videos.filter((video) => {
+    if (zugangFilter.value === 'frei' && !video.freigeschaltet) return false
+    if (zugangFilter.value === 'gesperrt' && video.freigeschaltet) return false
     if (bereichFilter.value.length && !bereichFilter.value.includes(video.bereich)) return false
     if (
       schwierigkeitFilter.value.length &&
@@ -97,7 +100,9 @@ function erledigt(video: KatalogVideo): boolean {
       v-model:suche="suche"
       v-model:bereiche="bereichFilter"
       v-model:grade="schwierigkeitFilter"
+      v-model:zugang="zugangFilter"
       :verfuegbare-bereiche="videos.bereiche"
+      mit-zugang
     />
 
     <p v-if="videos.error" class="state error" role="alert">{{ videos.error }}</p>
@@ -106,7 +111,13 @@ function erledigt(video: KatalogVideo): boolean {
     <template v-else>
       <p class="state">
         {{ treffer.length }} von {{ videos.videos.length }}
-        {{ videos.videos.length === 1 ? 'Übung' : 'Übungen' }}<template v-if="offeneTreffer">
+        <!--
+          Bei gesetztem Zugangsfilter sagt der Zusatz nichts mehr: dann sind
+          entweder alle Treffer offen oder alle gesperrt, und das steht schon
+          am angeschalteten Knopf.
+        -->
+        {{ videos.videos.length === 1 ? 'Übung' : 'Übungen'
+        }}<template v-if="offeneTreffer && !zugangFilter">
           · {{ offeneTreffer }} noch nicht freigeschaltet</template
         >
       </p>
@@ -132,6 +143,18 @@ function erledigt(video: KatalogVideo): boolean {
           :erledigt="erledigt(video)"
         />
       </div>
+
+      <!--
+        „Freigeschaltet" ohne Treffer ist kein Suchfehler, sondern der Normalfall
+        für ein frisches Konto — ein Rat zum Suchbegriff ginge daran vorbei.
+      -->
+      <p v-else-if="zugangFilter === 'frei'" class="state">
+        Für Sie ist noch nichts freigeschaltet. Ohne diesen Filter sehen Sie den ganzen Bestand.
+      </p>
+
+      <p v-else-if="zugangFilter === 'gesperrt'" class="state">
+        Hier ist nichts gesperrt — Sie haben zu dieser Auswahl bereits alles.
+      </p>
 
       <p v-else class="state">
         Nichts gefunden. Ein anderes Merkmal oder ein kürzerer Suchbegriff hilft meist.
