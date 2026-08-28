@@ -23,14 +23,50 @@ const auth = useAuthStore()
 const freigeschaltet = computed(() => auth.user?.pakete.includes(props.paket.name) ?? false)
 
 const offen = computed(() => props.paket.videos.filter((video) => !video.freigeschaltet).length)
+
+/**
+ * Im ganzen Paket ist noch nichts abspielbar. Das verdient ein Zeichen statt
+ * nur einer Zahl im Fuß: es ist der Unterschied zwischen „hier fehlt Ihnen
+ * noch etwas" und „hier kommen Sie gar nicht hinein".
+ */
+const komplettGesperrt = computed(
+  () => props.paket.videos.length > 0 && offen.value === props.paket.videos.length,
+)
 </script>
 
 <template>
   <RouterLink class="karte" :to="{ name: 'paket', params: { id: paket.id } }">
     <div class="kopf">
       <h3 class="t-h3">{{ paket.name }}</h3>
-      <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
-      <span v-else-if="auth.isAuthenticated" class="marke zu">Nicht freigeschaltet</span>
+
+      <span class="marken">
+        <!--
+          Das Schloss gilt auch für Gäste: für sie ist die Frage „komme ich
+          hier überhaupt rein" dieselbe, und ein Wort dazu wäre an jeder Karte
+          nur Rauschen.
+        -->
+        <span
+          v-if="komplettGesperrt"
+          class="schloss"
+          role="img"
+          aria-label="Noch nichts freigeschaltet"
+          title="Noch nichts freigeschaltet"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path
+              d="M7 10V7a5 5 0 0 1 10 0v3"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+            <rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor" />
+          </svg>
+        </span>
+
+        <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
+        <span v-else-if="auth.isAuthenticated" class="marke zu">Nicht freigeschaltet</span>
+      </span>
     </div>
 
     <p v-if="paket.beschreibung" class="beschreibung">{{ paket.beschreibung }}</p>
@@ -74,6 +110,24 @@ const offen = computed(() => props.paket.videos.filter((video) => !video.freiges
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.marken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.schloss {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-text-muted);
 }
 
 .marke {

@@ -137,6 +137,21 @@ const paketeDerZielgruppe = computed(() =>
     : [],
 )
 
+/**
+ * Übungen, die dieser Zielgruppe direkt zugeordnet sind — also nicht über
+ * eines ihrer Pakete hereinkommen.
+ *
+ * In einer Zielgruppe führen sonst die Pakete durch den Inhalt; nur diese
+ * Einzelstücke hätten sonst keinen Weg zum Nutzer, und die Zuordnung im
+ * Backend wäre wirkungslos.
+ */
+const einzelneDerZielgruppe = computed(() => {
+  if (!zielgruppe.value) return []
+  const paketIds = new Set(paketeDerZielgruppe.value.map((paket) => paket.id))
+
+  return imAusschnitt.value.filter((video) => !video.paketIds.some((id) => paketIds.has(id)))
+})
+
 /** Wie viele Übungen stecken in einer Zielgruppe — für die Karten. */
 function anzahlIn(name: string): number {
   return videos.videos.filter((video) => video.zielgruppenNamen.includes(name)).length
@@ -420,7 +435,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
           </div>
         </section>
 
-        <section v-if="weiterschauen.length" class="abschnitt">
+        <section v-if="!zielgruppe && weiterschauen.length" class="abschnitt">
           <header class="abschnitt-kopf">
             <h2 class="t-h3">Weiterschauen</h2>
           </header>
@@ -439,7 +454,16 @@ const abschnitte = computed<Abschnitt[]>(() => {
           </div>
         </section>
 
-        <section v-for="abschnitt in abschnitte" :key="abschnitt.schluessel" class="abschnitt">
+        <!--
+          In einer Zielgruppe führen die Pakete durch den Inhalt — die
+          Gliederung nach eigenen Paketen und freien Übungen bliebe daneben
+          eine zweite, verwirrende Sicht auf dieselben Kacheln.
+        -->
+        <section
+          v-for="abschnitt in zielgruppe ? [] : abschnitte"
+          :key="abschnitt.schluessel"
+          class="abschnitt"
+        >
           <header class="abschnitt-kopf">
             <h2 class="t-h3">
               <RouterLink
@@ -489,6 +513,37 @@ const abschnitte = computed<Abschnitt[]>(() => {
           </GButton>
         </section>
 
+        <section v-if="zielgruppe && einzelneDerZielgruppe.length" class="abschnitt">
+          <header class="abschnitt-kopf">
+            <h2 class="t-h3">Einzelne Übungen</h2>
+            <span class="zaehler t-meta">
+              {{ einzelneDerZielgruppe.length }}
+              {{ einzelneDerZielgruppe.length === 1 ? 'Übung' : 'Übungen' }} außerhalb der Pakete
+            </span>
+          </header>
+
+          <div class="grid">
+            <VideoTile
+              v-for="video in einzelneDerZielgruppe"
+              :id="video.id"
+              :key="video.id"
+              :titel="video.titel"
+              :untertitel="video.untertitel"
+              :beschreibung="video.beschreibung"
+              :dauer="video.dauer"
+              :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
+              :hilfsmittel="video.hilfsmittel"
+              :ohne-datei="!video.datei"
+              :anteil="anteil(video)"
+              :erledigt="erledigt(video)"
+            />
+          </div>
+        </section>
+
+        <p v-if="zielgruppe && !paketeDerZielgruppe.length && !einzelneDerZielgruppe.length" class="state">
+          Zu dieser Zielgruppe ist noch nichts hinterlegt.
+        </p>
+
         <GCard v-if="!auth.isAuthenticated" variant="gradient" class="cta">
           <h2 class="t-h3">Mehr Übungen freischalten</h2>
           <p class="cta-text">
@@ -498,7 +553,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
           <GButton variant="white" :to="{ name: 'login' }">Anmelden</GButton>
         </GCard>
 
-        <p v-if="!abschnitte.length" class="state">
+        <p v-if="!zielgruppe && !abschnitte.length" class="state">
           {{
             auth.isAuthenticated
               ? 'Ihnen sind noch keine Pakete zugewiesen — dadurch gibt es hier noch nichts zu sehen.'
