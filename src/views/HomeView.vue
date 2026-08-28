@@ -463,7 +463,11 @@ const uebungen = computed(() => {
         </div>
       </section>
 
-      <GCard v-if="!auth.isAuthenticated && !filterAktiv" variant="gradient" class="cta">
+      <!--
+        Bleibt für Gäste immer unten stehen, auch bei gesetztem Filter: gerade
+        wer sucht und Gesperrtes findet, hat den Hinweis dann am nötigsten.
+      -->
+      <GCard v-if="!auth.isAuthenticated" variant="gradient" class="cta">
         <h2 class="t-h3">Mehr Übungen freischalten</h2>
         <p class="cta-text">
           Mit einem Konto merkt sich das Portal Ihren Fortschritt; freigeschaltete Pakete
