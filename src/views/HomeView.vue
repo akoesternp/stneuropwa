@@ -152,10 +152,33 @@ const einzelneDerZielgruppe = computed(() => {
   return imAusschnitt.value.filter((video) => !video.paketIds.some((id) => paketIds.has(id)))
 })
 
-/** Wie viele Übungen stecken in einer Zielgruppe — für die Karten. */
-function anzahlIn(name: string): number {
-  return videos.videos.filter((video) => video.zielgruppenNamen.includes(name)).length
-}
+/**
+ * Der Umfang einer Zielgruppe für die Karten — bewusst aus den PAKETEN und
+ * nicht aus den sichtbaren Übungen.
+ *
+ * Vorher zählte hier, was der Nutzer schon darf; wer nichts freigeschaltet
+ * hat, las an jeder Karte „0 Übungen" und hielt die Zielgruppe für leer. Die
+ * Karte soll aber den Umfang des Angebots zeigen, nicht den eigenen Stand.
+ * Paketinhalte sind ohnehin öffentlich beschrieben.
+ */
+const umfang = computed(() => {
+  const karte = new Map<string, { pakete: number; uebungen: number }>()
+
+  for (const eintrag of videos.zielgruppen) {
+    const passende = pakete.pakete.filter((paket) =>
+      paket.zielgruppenNamen.includes(eintrag.name),
+    )
+
+    // Über die ID entdoppelt: dieselbe Übung kann in zwei Paketen derselben
+    // Zielgruppe stecken, gezählt gehört sie einmal.
+    const ids = new Set<number>()
+    for (const paket of passende) for (const video of paket.videos) ids.add(video.id)
+
+    karte.set(eintrag.name, { pakete: passende.length, uebungen: ids.size })
+  }
+
+  return karte
+})
 
 const treffer = computed(() => {
   const begriff = suche.value.trim().toLowerCase()
@@ -321,9 +344,11 @@ const abschnitte = computed<Abschnitt[]>(() => {
         >
           <span class="zg-name t-h3">{{ eintrag.name }}</span>
           <span v-if="eintrag.beschreibung" class="zg-text">{{ eintrag.beschreibung }}</span>
-          <span class="zg-zahl t-meta">
-            {{ anzahlIn(eintrag.name) }}
-            {{ anzahlIn(eintrag.name) === 1 ? 'Übung' : 'Übungen' }}
+          <span v-if="pakete.loaded" class="zg-zahl t-meta">
+            {{ umfang.get(eintrag.name)?.pakete ?? 0 }}
+            {{ umfang.get(eintrag.name)?.pakete === 1 ? 'Paket' : 'Pakete' }} ·
+            {{ umfang.get(eintrag.name)?.uebungen ?? 0 }}
+            {{ umfang.get(eintrag.name)?.uebungen === 1 ? 'Übung' : 'Übungen' }}
           </span>
         </button>
       </div>
