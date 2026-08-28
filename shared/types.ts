@@ -112,6 +112,35 @@ export interface Video {
   aktiv: boolean
 }
 
+/**
+ * Eine Übung, wie sie der Katalog des Portals zeigt.
+ *
+ * Enthält bewusst ALLES, was angeboten wird — auch was dieser Aufrufer noch
+ * nicht abspielen darf: wer nichts freigeschaltet hat, soll trotzdem finden,
+ * was es gibt. Der Dateiname fehlt (nur `hatDatei`), und abspielbar macht die
+ * Auskunft nichts: das entscheidet weiterhin der Stream-Endpunkt.
+ */
+export interface KatalogVideo {
+  id: number
+  titel: string
+  untertitel: string
+  beschreibung: string
+  dauer: string
+  bereich: string
+  schwierigkeit: string
+  hilfsmittel: string
+  oeffentlich: boolean
+  /** Reihenfolge im Bestand — bestimmt, was „die nächste Übung" ist. */
+  sortierung: number
+  paketIds: number[]
+  paketNamen: string[]
+  zielgruppenNamen: string[]
+  /** Darf der Aufrufer diese Übung abspielen? */
+  freigeschaltet: boolean
+  /** Liegt überhaupt eine Videodatei vor? Der Name bleibt intern. */
+  hatDatei: boolean
+}
+
 /** Ein Paket aus Sicht der Verwaltung — samt der zugeordneten Videos. */
 export interface PaketEintrag extends Paket {
   videoIds: number[]

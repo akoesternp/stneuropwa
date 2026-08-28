@@ -11,7 +11,7 @@ import { useFortschrittStore } from '@/stores/fortschritt'
 import { usePaketeStore } from '@/stores/pakete'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
-import type { Video } from '@/types'
+import type { KatalogVideo } from '@/types'
 
 /**
  * Die Startseite — zugleich der Katalog.
@@ -215,14 +215,14 @@ const umfang = computed(() => {
 
 /* ── Fortschritt ─────────────────────────────────────────────────────── */
 
-function anteil(video: Video): number {
+function anteil(video: KatalogVideo): number {
   const stand = fortschritt.fuer(video.id)
   if (!stand?.position) return 0
   const gesamt = dauerInSekunden(video.dauer)
   return gesamt ? stand.position / gesamt : 0
 }
 
-function erledigt(video: Video): boolean {
+function erledigt(video: KatalogVideo): boolean {
   return fortschritt.fuer(video.id)?.erledigt ?? false
 }
 
@@ -233,7 +233,7 @@ const weiterschauen = computed(() => {
   return fortschritt.zuletzt
     .filter((stand) => stand.position > 0 && !stand.erledigt)
     .map((stand) => videos.videos.find((video) => video.id === stand.videoId))
-    .filter((video): video is Video => Boolean(video))
+    .filter((video): video is KatalogVideo => Boolean(video))
     .slice(0, 4)
 })
 
@@ -310,7 +310,7 @@ const uebungen = computed(() => {
             :untertitel="video.untertitel"
             :dauer="video.dauer"
             :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
-            :ohne-datei="!video.datei"
+            :ohne-datei="!video.hatDatei"
             :anteil="anteil(video)"
           />
         </div>
@@ -335,7 +335,7 @@ const uebungen = computed(() => {
             :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
             :hilfsmittel="video.hilfsmittel"
             :marken="video.paketNamen"
-            :ohne-datei="!video.datei"
+            :ohne-datei="!video.hatDatei"
             :anteil="anteil(video)"
             :erledigt="erledigt(video)"
           />
@@ -419,7 +419,8 @@ const uebungen = computed(() => {
             :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
             :hilfsmittel="video.hilfsmittel"
             :marken="video.paketNamen"
-            :ohne-datei="!video.datei"
+            :gesperrt="!video.freigeschaltet"
+            :ohne-datei="!video.hatDatei"
             :anteil="anteil(video)"
             :erledigt="erledigt(video)"
           />

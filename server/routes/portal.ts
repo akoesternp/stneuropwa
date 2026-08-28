@@ -3,11 +3,11 @@ import { basename, join } from 'node:path'
 import { Router } from 'express'
 import {
   darfVideoSehen,
+  katalogVideos,
   listBereiche,
   listZielgruppen,
   leseFortschritt,
   paketInhalte,
-  sichtbareVideos,
   speichereFortschritt,
 } from '../db.js'
 import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
@@ -32,7 +32,7 @@ portalRouter.get('/videos', async (req, res) => {
    * und ein zweiter Aufruf für eine Handvoll Namen wäre Verschwendung.
    */
   const [videos, bereiche, zielgruppen] = await Promise.all([
-    sichtbareVideos(benutzerId),
+    katalogVideos(benutzerId),
     listBereiche(),
     listZielgruppen(true),
   ])

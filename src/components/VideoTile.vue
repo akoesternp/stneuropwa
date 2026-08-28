@@ -26,7 +26,12 @@ const props = withDefaults(
     hilfsmittel?: string
     /** Paketnamen o. Ä. als kleine Marken unter dem Text. */
     marken?: string[]
-    /** Nicht freigeschaltet: keine Verknüpfung, Schloss-Marke. */
+    /**
+     * Nicht freigeschaltet: Schloss statt Abspielsymbol, gedämpftes Bild.
+     * Anklickbar bleibt die Kachel trotzdem — die Detailseite sagt, über
+     * welches Paket sie zugänglich wird. Der Schutz sitzt im Stream, nicht
+     * in der Verknüpfung.
+     */
     gesperrt?: boolean
     /** Noch keine Videodatei hinterlegt. */
     ohneDatei?: boolean
@@ -70,12 +75,7 @@ const thumbStyle = computed(() => ({
 </script>
 
 <template>
-  <component
-    :is="gesperrt ? 'div' : RouterLink"
-    :to="gesperrt ? undefined : { name: 'video', params: { id } }"
-    class="tile"
-    :class="{ gesperrt }"
-  >
+  <RouterLink class="tile" :class="{ gesperrt }" :to="{ name: 'video', params: { id } }">
     <div class="thumb" :style="thumbStyle" aria-hidden="true">
       <img
         v-if="!bildFehlt"
@@ -133,7 +133,7 @@ const thumbStyle = computed(() => ({
         <span v-for="name in marken" :key="name" class="marke t-meta">{{ name }}</span>
       </span>
     </div>
-  </component>
+  </RouterLink>
 </template>
 
 <style scoped>
@@ -147,7 +147,7 @@ const thumbStyle = computed(() => ({
   color: var(--c-text);
 }
 
-.tile:not(.gesperrt):hover {
+.tile:hover {
   border-color: var(--c-action);
   color: var(--c-text);
   text-decoration: none;

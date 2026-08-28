@@ -5,6 +5,7 @@ import type {
   Bereich,
   BenutzerEintrag,
   Fortschritt,
+  KatalogVideo,
   Paket,
   PaketEintrag,
   Video,
@@ -641,12 +642,70 @@ const SICHTBAR_FUER_NUTZER = `(
 const OEFFENTLICH = `v.oeffentlich = 1`
 
 /**
- * Hängt die Paketzuordnung an die Videozeilen.
+ * Hängt Pakete und Zielgruppen an eine Liste von Übungen.
  *
- * Bewusst eine zweite Abfrage statt GROUP_CONCAT: das Zusammenkleben und
+ * Bewusst eigene Abfragen statt GROUP_CONCAT: das Zusammenkleben und
  * Wiederzerlegen einer Zeichenkette scheitert stillschweigend an einem
  * Paketnamen mit Komma.
+ *
+ * Verträgt beide Formen — die Verwaltungsform mit Dateinamen und die des
+ * Katalogs ohne —, damit die Regel nicht zweimal existiert.
  */
+async function ergaenzeZuordnungen<
+  T extends { id: number; paketIds: number[]; paketNamen: string[]; zielgruppenNamen: string[] },
+>(eintraege: T[]): Promise<T[]> {
+  if (!eintraege.length) return eintraege
+
+  const ids = eintraege.map((eintrag) => eintrag.id)
+  const nachId = new Map(eintraege.map((eintrag) => [eintrag.id, eintrag]))
+
+  const zuordnungen: Record<string, unknown>[] = await getPool().query(
+    `SELECT vp.video_id, vp.paket_id, p.name
+     FROM video_pakete vp JOIN pakete p ON p.id = vp.paket_id
+     WHERE vp.video_id IN (?)
+     ORDER BY p.sortierung, p.name`,
+    [ids],
+  )
+
+  for (const zuordnung of zuordnungen) {
+    const eintrag = nachId.get(Number(zuordnung.video_id))
+    if (!eintrag) continue
+    eintrag.paketIds.push(Number(zuordnung.paket_id))
+    eintrag.paketNamen.push(String(zuordnung.name))
+  }
+
+  /*
+   * Eine Übung gehört zu einer Zielgruppe, wenn sie ihr direkt zugeordnet ist
+   * ODER in einem ihrer Pakete liegt. Beide Wege in einer Abfrage, damit die
+   * Oberfläche die Regel nicht nachbauen muss.
+   */
+  const zielgruppen: Record<string, unknown>[] = await getPool().query(
+    `SELECT zv.video_id, z.name, z.sortierung
+       FROM zielgruppe_videos zv JOIN zielgruppen z ON z.id = zv.zielgruppe_id AND z.aktiv = 1
+      WHERE zv.video_id IN (?)
+      UNION
+     SELECT vp.video_id, z.name, z.sortierung
+       FROM video_pakete vp
+       JOIN zielgruppe_pakete zp ON zp.paket_id = vp.paket_id
+       JOIN zielgruppen z ON z.id = zp.zielgruppe_id AND z.aktiv = 1
+      WHERE vp.video_id IN (?)
+      ORDER BY sortierung, name`,
+    [ids, ids],
+  )
+
+  for (const zuordnung of zielgruppen) {
+    const eintrag = nachId.get(Number(zuordnung.video_id))
+    if (!eintrag) continue
+    const name = String(zuordnung.name)
+    // UNION entfernt Dubletten je Zeile, nicht je Übung — eine Übung kann über
+    // zwei Pakete in derselben Zielgruppe landen.
+    if (!eintrag.zielgruppenNamen.includes(name)) eintrag.zielgruppenNamen.push(name)
+  }
+
+  return eintraege
+}
+
+/** Die Verwaltungsform: mit Dateinamen, Sortierung und Aktiv-Kennzeichen. */
 async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
   const videos: Video[] = rows.map((row) => ({
     zielgruppenNamen: [],
@@ -668,54 +727,69 @@ async function mitPaketen(rows: Record<string, unknown>[]): Promise<Video[]> {
     aktiv: Number(row.aktiv) === 1,
   }))
 
-  if (!videos.length) return videos
+  return ergaenzeZuordnungen(videos)
+}
 
-  const zuordnungen: Record<string, unknown>[] = await getPool().query(
-    `SELECT vp.video_id, vp.paket_id, p.name
-     FROM video_pakete vp JOIN pakete p ON p.id = vp.paket_id
-     WHERE vp.video_id IN (?)
-     ORDER BY p.sortierung, p.name`,
-    [videos.map((video) => video.id)],
-  )
+/**
+ * Der Katalog des Portals: ALLES, was angeboten wird — auch was dieser
+ * Aufrufer noch nicht abspielen darf.
+ *
+ * Wer nichts freigeschaltet hat, soll trotzdem finden, was es gibt; sonst
+ * wäre die Suche für genau die Nutzer nutzlos, die etwas suchen. Preisgegeben
+ * wird dabei nichts, was die Paketübersicht nicht ohnehin zeigt: Titel,
+ * Beschreibung, Laufzeit und Merkmale. Der Dateiname bleibt drin, abspielbar
+ * macht die Auskunft nichts — das entscheidet der Stream-Endpunkt.
+ *
+ * Nicht im Katalog stehen Übungen ohne Paket und ohne Öffentlich-Schalter:
+ * für die gibt es keinen Weg zur Freischaltung, sie sind Entwurf oder
+ * Einzelfall. Wem eine davon zugeteilt wurde, sieht sie trotzdem.
+ */
+export async function katalogVideos(benutzerId: number | null): Promise<KatalogVideo[]> {
+  await ensureReady()
 
-  const nachId = new Map(videos.map((video) => [video.id, video]))
-  for (const zuordnung of zuordnungen) {
-    const video = nachId.get(Number(zuordnung.video_id))
-    if (!video) continue
-    video.paketIds.push(Number(zuordnung.paket_id))
-    video.paketNamen.push(String(zuordnung.name))
-  }
+  const imAngebot = `(
+    v.oeffentlich = 1
+    OR EXISTS (SELECT 1 FROM video_pakete vp WHERE vp.video_id = v.id)
+  )`
 
-  /*
-   * Ein Video gehört zu einer Zielgruppe, wenn es ihr direkt zugeordnet ist
-   * ODER in einem ihrer Pakete liegt. Beide Wege in einer Abfrage, damit die
-   * Oberfläche die Regel nicht nachbauen muss.
-   */
-  const ids = videos.map((video) => video.id)
-  const zielgruppen: Record<string, unknown>[] = await getPool().query(
-    `SELECT zv.video_id, z.name, z.sortierung
-       FROM zielgruppe_videos zv JOIN zielgruppen z ON z.id = zv.zielgruppe_id AND z.aktiv = 1
-      WHERE zv.video_id IN (?)
-      UNION
-     SELECT vp.video_id, z.name, z.sortierung
-       FROM video_pakete vp
-       JOIN zielgruppe_pakete zp ON zp.paket_id = vp.paket_id
-       JOIN zielgruppen z ON z.id = zp.zielgruppe_id AND z.aktiv = 1
-      WHERE vp.video_id IN (?)
-      ORDER BY sortierung, name`,
-    [ids, ids],
-  )
+  const spalten = `v.id, v.titel, v.untertitel, v.beschreibung, v.dauer, v.datei,
+                   v.oeffentlich, v.sortierung, v.bereich, v.schwierigkeit, v.hilfsmittel`
 
-  for (const zuordnung of zielgruppen) {
-    const video = nachId.get(Number(zuordnung.video_id))
-    if (!video) continue
-    const name = String(zuordnung.name)
-    // UNION entfernt Dubletten je Zeile, nicht je Video — ein Video kann über
-    // zwei Pakete in derselben Zielgruppe landen.
-    if (!video.zielgruppenNamen.includes(name)) video.zielgruppenNamen.push(name)
-  }
+  const rows: Record<string, unknown>[] =
+    benutzerId === null
+      ? await getPool().query(
+          `SELECT ${spalten}, ${OEFFENTLICH} AS freigeschaltet FROM videos v
+           WHERE v.aktiv = 1 AND ${imAngebot} ORDER BY v.sortierung, v.id`,
+        )
+      : await getPool().query(
+          `SELECT ${spalten}, ${SICHTBAR_FUER_NUTZER} AS freigeschaltet FROM videos v
+           WHERE v.aktiv = 1 AND (${imAngebot} OR ${SICHTBAR_FUER_NUTZER})
+           ORDER BY v.sortierung, v.id`,
+          [benutzerId, benutzerId, benutzerId, benutzerId],
+        )
 
-  return videos
+  const videos: KatalogVideo[] = rows.map((row) => ({
+    id: Number(row.id),
+    titel: String(row.titel),
+    untertitel: String(row.untertitel ?? ''),
+    beschreibung: String(row.beschreibung ?? ''),
+    dauer: String(row.dauer ?? ''),
+    bereich: String(row.bereich ?? ''),
+    schwierigkeit: SCHWIERIGKEITEN.includes(String(row.schwierigkeit ?? '') as never)
+      ? String(row.schwierigkeit)
+      : '',
+    hilfsmittel: String(row.hilfsmittel ?? ''),
+    oeffentlich: Number(row.oeffentlich) === 1,
+    sortierung: Number(row.sortierung ?? 0),
+    paketIds: [],
+    paketNamen: [],
+    zielgruppenNamen: [],
+    freigeschaltet: Number(row.freigeschaltet) === 1,
+    // Nur ob eine Datei hinterlegt ist — der Name bleibt intern.
+    hatDatei: String(row.datei ?? '') !== '',
+  }))
+
+  return ergaenzeZuordnungen(videos)
 }
 
 /** Alle Videos, auch inaktive — die Liste der Verwaltung. */

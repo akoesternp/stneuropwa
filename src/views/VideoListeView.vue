@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
-import type { Video } from '@/types'
+import type { KatalogVideo } from '@/types'
 
 /**
  * Alle Übungen am Stück — für die Suche nach einer einzelnen.
@@ -16,6 +16,11 @@ import type { Video } from '@/types'
  * Die Startseite gliedert nach Zielgruppen und Paketen; das hilft beim
  * Stöbern, steht aber im Weg, wenn man eine bestimmte Übung sucht. Hier gibt
  * es deshalb nur die flache Liste, dafür mit derselben Filterleiste.
+ *
+ * Und zwar der GANZE Bestand, nicht nur das Freigeschaltete: wer eine
+ * bestimmte Übung sucht, soll sie finden — auch ohne einen einzigen Zugang.
+ * Die gesperrten Kacheln tragen ein Schloss und führen auf die Detailseite,
+ * die zeigt, über welches Paket die Übung zugänglich wird.
  */
 const auth = useAuthStore()
 const videos = useVideosStore()
@@ -59,14 +64,19 @@ const treffer = computed(() => {
   })
 })
 
-function anteil(video: Video): number {
+/** Wie viele der Treffer noch gesperrt sind — beziffert den Hinweis unten. */
+const offeneTreffer = computed(
+  () => treffer.value.filter((video) => !video.freigeschaltet).length,
+)
+
+function anteil(video: KatalogVideo): number {
   const stand = fortschritt.fuer(video.id)
   if (!stand?.position) return 0
   const gesamt = dauerInSekunden(video.dauer)
   return gesamt ? stand.position / gesamt : 0
 }
 
-function erledigt(video: Video): boolean {
+function erledigt(video: KatalogVideo): boolean {
   return fortschritt.fuer(video.id)?.erledigt ?? false
 }
 </script>
@@ -77,11 +87,8 @@ function erledigt(video: Video): boolean {
       <div class="titles">
         <h1 class="t-h2">Alle Übungen</h1>
         <p class="t-subhead">
-          {{
-            auth.isAuthenticated
-              ? 'Ihre freigeschalteten Übungen und alle frei zugänglichen — flach durchsuchbar.'
-              : 'Die frei zugänglichen Übungen — flach durchsuchbar.'
-          }}
+          Der gesamte Übungsbestand, flach durchsuchbar — auch was noch nicht
+          freigeschaltet ist.
         </p>
       </div>
     </header>
@@ -99,7 +106,9 @@ function erledigt(video: Video): boolean {
     <template v-else>
       <p class="state">
         {{ treffer.length }} von {{ videos.videos.length }}
-        {{ videos.videos.length === 1 ? 'Übung' : 'Übungen' }}
+        {{ videos.videos.length === 1 ? 'Übung' : 'Übungen' }}<template v-if="offeneTreffer">
+          · {{ offeneTreffer }} noch nicht freigeschaltet</template
+        >
       </p>
 
       <div v-if="treffer.length" class="grid">
@@ -117,7 +126,8 @@ function erledigt(video: Video): boolean {
             ...(video.oeffentlich ? ['Frei verfügbar'] : []),
             ...video.paketNamen,
           ]"
-          :ohne-datei="!video.datei"
+          :gesperrt="!video.freigeschaltet"
+          :ohne-datei="!video.hatDatei"
           :anteil="anteil(video)"
           :erledigt="erledigt(video)"
         />
@@ -128,14 +138,15 @@ function erledigt(video: Video): boolean {
       </p>
 
       <!--
-        Für Gäste enthält diese Liste nur die freien Übungen — der Hinweis
-        gehört hierher genauso wie auf die Startseite.
+        Die Liste zeigt Gästen auch Gesperrtes — gerade dann ist der Hinweis
+        fällig, wie sich daraus Abspielbares macht.
       -->
       <GCard v-if="!auth.isAuthenticated" variant="gradient" class="cta">
         <h2 class="t-h3">Mehr Übungen freischalten</h2>
         <p class="cta-text">
-          Diese Liste zeigt Ihnen die frei zugänglichen Übungen. Mit einem Konto merkt sich das
-          Portal Ihren Fortschritt; freigeschaltete Pakete erweitern das Angebot.
+          Gefunden haben Sie hier alles. Abspielen lässt sich ohne Konto nur, was frei zugänglich
+          ist — mit einem Konto merkt sich das Portal Ihren Fortschritt, freigeschaltete Pakete
+          öffnen den Rest.
         </p>
         <div class="cta-knoepfe">
           <GButton variant="white" :to="{ name: 'registrieren' }">Konto anlegen</GButton>

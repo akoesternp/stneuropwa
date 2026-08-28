@@ -13,9 +13,12 @@ import { useVideosStore } from '@/stores/videos'
  * das Sitzungscookie geht automatisch mit (gleiche Origin) — Tokens oder
  * signierte Links braucht es deshalb nicht.
  *
- * Die Metadaten kommen aus der Kachel-Liste des Stores. Steht das Video dort
- * nicht drin, darf dieser Aufrufer es nicht sehen (oder es gibt es nicht) —
- * beides bekommt dieselbe Ansicht, denn der Unterschied geht ihn nichts an.
+ * Die Metadaten kommen aus dem Katalog des Stores — der enthält auch, was
+ * dieser Aufrufer noch nicht abspielen darf. Solche Übungen zeigen statt des
+ * Players den Weg zur Freischaltung; der Stream bliebe ohnehin verschlossen.
+ *
+ * Steht das Video gar nicht im Katalog, gibt es es nicht (oder es ist nicht im
+ * Angebot) — das bekommt dieselbe Ansicht wie ein Tippfehler in der Adresse.
  */
 const route = useRoute()
 const auth = useAuthStore()
@@ -267,7 +270,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="kopf-aktionen">
           <GButton
-            v-if="auth.isAuthenticated"
+            v-if="auth.isAuthenticated && video.freigeschaltet"
             :variant="erledigt ? 'primary' : 'outline'"
             size="sm"
             @click="erledigtUmschalten"
@@ -278,11 +281,28 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
+      <!--
+        Gesperrt: kein Player, aber alles andere bleibt stehen. Titel,
+        Beschreibung und der Block „Gehört zu" sind genau das, was jemand
+        braucht, der über die Suche hier gelandet ist.
+      -->
+      <div v-if="!video.freigeschaltet" class="soon">
+        <p class="t-h3">Noch nicht freigeschaltet</p>
+        <p class="soon-text">
+          Diese Übung gehört zu einem Paket, das für Sie noch nicht offen ist. Unter „Gehört zu"
+          sehen Sie, über welches Paket und welche Zielgruppe sie zugänglich wird.
+        </p>
+        <div v-if="!auth.isAuthenticated" class="soon-aktionen">
+          <GButton variant="dark" :to="{ name: 'registrieren' }">Konto anlegen</GButton>
+          <GButton variant="outline" :to="{ name: 'login' }">Anmelden</GButton>
+        </div>
+      </div>
+
       <!-- Der eigentliche Schutz ist die Berechtigungsprüfung im Stream;
            controlsList nimmt nur den Herunterladen-Knopf aus der Leiste.
            Der Schlüssel sorgt dafür, dass beim Wechsel auf ein anderes Video
            ein frisches Element entsteht — daran hängt der Player neu. -->
-      <div v-if="video.datei" class="buehne">
+      <div v-else-if="video.hatDatei" class="buehne">
         <video
           :key="video.id"
           ref="videoEl"
@@ -371,7 +391,7 @@ onBeforeUnmount(() => {
             </p>
           </div>
 
-          <label v-if="video.datei" class="schleife">
+          <label v-if="video.freigeschaltet && video.hatDatei" class="schleife">
             <input v-model="wiederholen" type="checkbox" />
             In Schleife wiederholen
           </label>
@@ -504,10 +524,12 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 
+.soon-aktionen,
 .missing-actions {
   display: flex;
   gap: 12px;
   margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 /*

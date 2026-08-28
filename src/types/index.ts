@@ -1,4 +1,11 @@
-export type { Benutzer, BenutzerEintrag, Paket, PaketInhalt, Video } from '@shared/types'
+export type {
+  Benutzer,
+  BenutzerEintrag,
+  KatalogVideo,
+  Paket,
+  PaketInhalt,
+  Video,
+} from '@shared/types'
 
 /** Spaltendefinition der DataTable. */
 export interface Column {

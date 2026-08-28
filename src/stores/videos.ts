@@ -1,14 +1,18 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { api } from '@/api/client'
-import type { Video } from '@/types'
+import type { KatalogVideo } from '@/types'
 
 /**
- * Die sichtbaren Kacheln. Welche das sind, entscheidet der Server anhand der
- * Sitzung — nach An- oder Abmeldung genügt deshalb ein `reload()`.
+ * Der Katalog: ALLE angebotenen Übungen, jede mit `freigeschaltet`.
+ *
+ * Bewusst nicht nur die eigenen — wer noch nichts hat, soll trotzdem finden,
+ * was es gibt, sonst ist die Suche für genau diese Nutzer nutzlos. Was jemand
+ * abspielen darf, entscheidet weiterhin der Server; nach An- oder Abmeldung
+ * genügt ein `reload()`.
  */
 export const useVideosStore = defineStore('videos', () => {
-  const videos = ref<Video[]>([])
+  const videos = ref<KatalogVideo[]>([])
   /** Die gepflegten Trainingsbereiche — Reihenfolge wie im Backend. */
   const bereiche = ref<string[]>([])
 /** Aktive Zielgruppen — die oberste Gliederungsebene im Portal. */
@@ -19,7 +23,7 @@ export const useVideosStore = defineStore('videos', () => {
   async function reload(): Promise<void> {
     try {
       const result = await api.get<{
-        videos: Video[]
+        videos: KatalogVideo[]
         bereiche: string[]
         zielgruppen: { name: string; beschreibung: string }[]
       }>('/portal/videos')
