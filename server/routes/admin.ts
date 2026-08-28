@@ -16,6 +16,7 @@ import {
   findBenutzerById,
   listAdmins,
   listBereiche,
+  listPaketeMitVideos,
   listBenutzer,
   listPakete,
   listVideos,
@@ -135,7 +136,7 @@ adminRouter.delete('/benutzer/:id', async (req, res) => {
 // ── Pakete ─────────────────────────────────────────────────────────────────
 
 adminRouter.get('/pakete', async (_req, res) => {
-  res.json(await listPakete())
+  res.json(await listPaketeMitVideos())
 })
 
 adminRouter.put('/pakete', async (req, res) => {
@@ -148,13 +149,30 @@ adminRouter.put('/pakete', async (req, res) => {
     return
   }
 
+  /*
+   * Nur bekannte Videos übernehmen. Fehlt das Feld ganz, bleibt die Zuordnung
+   * unangetastet — „nicht mitgeschickt" heißt nicht „keine Videos".
+   */
+  let videoIds: number[] | null = null
+  if (Array.isArray(body.videoIds)) {
+    const bekannt = new Set((await listVideos()).map((video) => video.id))
+    const roh: unknown[] = body.videoIds
+    videoIds = [...new Set(roh.map((wert) => Number(wert)))].filter((videoId) =>
+      bekannt.has(videoId),
+    )
+  }
+
   try {
-    const paketId = await savePaket(id, {
-      name,
-      beschreibung: String(body.beschreibung ?? ''),
-      sortierung: Number(body.sortierung) || 0,
-      aktiv: body.aktiv !== false,
-    })
+    const paketId = await savePaket(
+      id,
+      {
+        name,
+        beschreibung: String(body.beschreibung ?? ''),
+        sortierung: Number(body.sortierung) || 0,
+        aktiv: body.aktiv !== false,
+      },
+      videoIds,
+    )
     res.json({ id: paketId })
   } catch (cause) {
     if (istDuplikat(cause)) {
@@ -374,15 +392,6 @@ adminRouter.put('/videos', async (req, res) => {
     return
   }
 
-  // Unbekannte Pakete wären eine unsichtbare Kachel — lieber gleich ablehnen.
-  const bekannt = new Set((await listPakete()).map((paket) => paket.id))
-  const roheIds: unknown[] = Array.isArray(body.paketIds) ? body.paketIds : []
-  const gewuenschtePakete = [...new Set(roheIds.map((wert) => Number(wert)))]
-  if (gewuenschtePakete.some((paketId) => !bekannt.has(paketId))) {
-    res.status(400).json({ error: 'Unbekanntes Paket.' })
-    return
-  }
-
   /*
    * Nur ein nackter Dateiname aus VIDEO_DIR, kein Pfad — und die Datei muss
    * existieren: eine Kachel, deren Stream ins Leere liefe, fällt sonst erst
@@ -426,7 +435,12 @@ adminRouter.put('/videos', async (req, res) => {
     bereich: ausListe(body.bereich, bekannteBereiche),
     schwierigkeit: ausListe(body.schwierigkeit, SCHWIERIGKEITEN),
     hilfsmittel: String(body.hilfsmittel ?? '').trim().slice(0, 255),
-    paketIds: gewuenschtePakete,
+    /*
+     * Die Paketzuordnung wird von der Paketmaske aus gepflegt; null lässt sie
+     * unangetastet. Käme hier eine leere Liste an, risse jedes Speichern eines
+     * Videos seine Pakete weg.
+     */
+    paketIds: null,
     datei,
     sortierung: Number(body.sortierung) || 0,
     aktiv: body.aktiv !== false,

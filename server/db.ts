@@ -1,7 +1,14 @@
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
 import { SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
-import type { Bereich, BenutzerEintrag, Fortschritt, Paket, Video } from '../shared/types.js'
+import type {
+  Bereich,
+  BenutzerEintrag,
+  Fortschritt,
+  Paket,
+  PaketEintrag,
+  Video,
+} from '../shared/types.js'
 
 /**
  * MariaDB als Datenhaltung für alles, was das Portal besitzt und beschreibt:
@@ -450,24 +457,76 @@ export async function listPakete(): Promise<Paket[]> {
   return rows.map(toPaket)
 }
 
+/** Die Pakete mit ihren Videos — die Liste der Verwaltung. */
+export async function listPaketeMitVideos(): Promise<PaketEintrag[]> {
+  await ensureReady()
+  const pakete = await listPakete()
+  if (!pakete.length) return []
+
+  const zuordnungen: { video_id: number; paket_id: number }[] = await getPool().query(
+    'SELECT video_id, paket_id FROM video_pakete',
+  )
+
+  const nachPaket = new Map<number, number[]>()
+  for (const zuordnung of zuordnungen) {
+    const liste = nachPaket.get(Number(zuordnung.paket_id)) ?? []
+    liste.push(Number(zuordnung.video_id))
+    nachPaket.set(Number(zuordnung.paket_id), liste)
+  }
+
+  return pakete.map((paket) => ({ ...paket, videoIds: nachPaket.get(paket.id) ?? [] }))
+}
+
+/**
+ * Anlegen bzw. Ändern, auf Wunsch samt Videozuordnung.
+ *
+ * `videoIds` null bedeutet „unangetastet lassen" — nicht „keine Videos".
+ * Ohne diese Unterscheidung risse ein Speichern aus einer Maske, die die
+ * Zuordnung gar nicht anzeigt, den ganzen Paketinhalt weg.
+ */
 export async function savePaket(
   id: number | null,
   daten: Omit<Paket, 'id'>,
+  videoIds: number[] | null = null,
 ): Promise<number> {
   await ensureReady()
-  if (id === null) {
-    const result = await getPool().query(
-      'INSERT INTO pakete (name, beschreibung, sortierung, aktiv) VALUES (?, ?, ?, ?)',
-      [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0],
-    )
-    return Number(result.insertId)
-  }
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
 
-  await getPool().query(
-    'UPDATE pakete SET name = ?, beschreibung = ?, sortierung = ?, aktiv = ? WHERE id = ?',
-    [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0, id],
-  )
-  return id
+    let paketId: number
+    if (id === null) {
+      const result = await conn.query(
+        'INSERT INTO pakete (name, beschreibung, sortierung, aktiv) VALUES (?, ?, ?, ?)',
+        [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0],
+      )
+      paketId = Number(result.insertId)
+    } else {
+      paketId = id
+      await conn.query(
+        'UPDATE pakete SET name = ?, beschreibung = ?, sortierung = ?, aktiv = ? WHERE id = ?',
+        [daten.name, daten.beschreibung, daten.sortierung, daten.aktiv ? 1 : 0, id],
+      )
+    }
+
+    if (videoIds !== null) {
+      await conn.query('DELETE FROM video_pakete WHERE paket_id = ?', [paketId])
+      if (videoIds.length) {
+        await conn.batch(
+          'INSERT INTO video_pakete (video_id, paket_id) VALUES (?, ?)',
+          videoIds.map((videoId) => [videoId, paketId]),
+        )
+      }
+    }
+
+    await conn.commit()
+    return paketId
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
 }
 
 /**
@@ -633,14 +692,23 @@ export async function darfVideoSehen(
   return rows[0] ? (await mitPaketen(rows))[0]! : null
 }
 
+/** Eingabe für saveVideo — `paketIds` null lässt die Zuordnung unangetastet. */
+export interface VideoSpeichern extends Omit<Video, 'id' | 'paketNamen' | 'paketIds'> {
+  paketIds: number[] | null
+}
+
 /**
- * Anlegen bzw. Ändern samt Paketzuordnung in EINER Transaktion — ein Video,
- * dessen Zuordnung nur halb geschrieben wurde, wäre entweder unsichtbar oder
- * für die Falschen sichtbar.
+ * Anlegen bzw. Ändern in EINER Transaktion — ein Video, dessen Zuordnung nur
+ * halb geschrieben wurde, wäre entweder unsichtbar oder für die Falschen
+ * sichtbar.
+ *
+ * Die Paketzuordnung wird seit der Umstellung von der Paketmaske aus gepflegt.
+ * `paketIds` null heißt deshalb „nicht anfassen": sonst löschte jedes
+ * Speichern aus der Videomaske die dort gar nicht mehr angezeigte Zuordnung.
  */
 export async function saveVideo(
   id: number | null,
-  daten: Omit<Video, 'id' | 'paketNamen'>,
+  daten: VideoSpeichern,
 ): Promise<number> {
   await ensureReady()
   const conn = await getPool().getConnection()
@@ -668,12 +736,14 @@ export async function saveVideo(
       )
     }
 
-    await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [videoId])
-    if (daten.paketIds.length) {
-      await conn.batch(
-        'INSERT INTO video_pakete (video_id, paket_id) VALUES (?, ?)',
-        daten.paketIds.map((paketId) => [videoId, paketId]),
-      )
+    if (daten.paketIds !== null) {
+      await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [videoId])
+      if (daten.paketIds.length) {
+        await conn.batch(
+          'INSERT INTO video_pakete (video_id, paket_id) VALUES (?, ?)',
+          daten.paketIds.map((paketId) => [videoId, paketId]),
+        )
+      }
     }
 
     await conn.commit()

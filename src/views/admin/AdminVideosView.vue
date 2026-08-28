@@ -7,7 +7,7 @@ import { api, ApiError } from '@/api/client'
 import { bildAlsVorschaubild, erzeugeVorschaubild } from '@/utils/vorschaubild'
 import { SCHWIERIGKEITEN } from '@shared/types'
 import type { Bereich } from '@shared/types'
-import type { Column, Paket, Video } from '@/types'
+import type { Column, Video } from '@/types'
 
 /**
  * Die Kacheln des Portals. Videodateien lassen sich hier hochladen oder per
@@ -21,7 +21,6 @@ interface Datei {
 }
 
 const rows = ref<Video[]>([])
-const pakete = ref<Paket[]>([])
 const dateien = ref<Datei[]>([])
 const bereiche = ref<Bereich[]>([])
 
@@ -31,7 +30,7 @@ interface Editor {
   untertitel: string
   beschreibung: string
   dauer: string
-  paketIds: number[]
+  paketNamen: string[]
   oeffentlich: boolean
   bereich: string
   schwierigkeit: string
@@ -128,9 +127,8 @@ const dateiOptions = computed<readonly [string, string][]>(() => {
 })
 
 async function load() {
-  ;[rows.value, pakete.value, dateien.value, bereiche.value] = await Promise.all([
+  ;[rows.value, dateien.value, bereiche.value] = await Promise.all([
     api.get<Video[]>('/admin/videos'),
-    api.get<Paket[]>('/admin/pakete'),
     api.get<{ dateien: Datei[] }>('/admin/video-dateien').then((r) => r.dateien),
     api.get<Bereich[]>('/admin/bereiche'),
   ])
@@ -151,7 +149,7 @@ function startNew() {
     untertitel: '',
     beschreibung: '',
     dauer: '',
-    paketIds: [],
+    paketNamen: [],
     oeffentlich: false,
     bereich: '',
     schwierigkeit: '',
@@ -175,7 +173,7 @@ function startEdit(row: Video) {
     untertitel: row.untertitel,
     beschreibung: row.beschreibung,
     dauer: row.dauer,
-    paketIds: [...row.paketIds],
+    paketNamen: [...row.paketNamen],
     oeffentlich: row.oeffentlich,
     bereich: row.bereich,
     schwierigkeit: row.schwierigkeit,
@@ -237,13 +235,6 @@ function onGeschlossen() {
     setzeVorschau(null)
     editing.value = null
   }
-}
-
-function togglePaket(id: number) {
-  if (!editing.value) return
-  const index = editing.value.paketIds.indexOf(id)
-  if (index === -1) editing.value.paketIds.push(id)
-  else editing.value.paketIds.splice(index, 1)
 }
 
 /**
@@ -409,7 +400,6 @@ async function save() {
       untertitel: editing.value.untertitel,
       beschreibung: editing.value.beschreibung,
       dauer: editing.value.dauer,
-      paketIds: editing.value.paketIds,
       oeffentlich: editing.value.oeffentlich,
       bereich: editing.value.bereich,
       schwierigkeit: editing.value.schwierigkeit,
@@ -645,30 +635,29 @@ async function remove(row: Video) {
         Pakete nicht aus. Ein Video kann in Paketen liegen UND frei sein —
         etwa als Schnupperfolge.
       -->
+      <!--
+        Die Paketzuordnung wird von der Paketseite aus gepflegt — bei
+        Hunderten Videos ist „welche Videos gehören in dieses Paket" die
+        Frage, die man stellt, nicht umgekehrt. Hier steht sie nur noch da.
+      -->
       <div class="assign">
         <span class="t-eyebrow">Sichtbar über</span>
-        <div class="paket-list">
-          <label class="paket oeffentlich">
-            <input v-model="editing.oeffentlich" type="checkbox" />
-            Öffentlich <span class="t-meta">(ohne Anmeldung)</span>
-          </label>
+        <label class="paket oeffentlich">
+          <input v-model="editing.oeffentlich" type="checkbox" />
+          Öffentlich <span class="t-meta">(ohne Anmeldung sichtbar)</span>
+        </label>
 
-          <label v-for="paket in pakete" :key="paket.id" class="paket">
-            <input
-              type="checkbox"
-              :checked="editing.paketIds.includes(paket.id)"
-              @change="togglePaket(paket.id)"
-            />
-            {{ paket.name }}
-            <span v-if="!paket.aktiv" class="t-meta">(inaktiv)</span>
-          </label>
-        </div>
         <p class="hint">
-          <template v-if="!editing.oeffentlich && !editing.paketIds.length">
-            Ohne Haken sieht das Video nur, wem es unter „Nutzer" einzeln freigeschaltet wurde.
+          <template v-if="editing.paketNamen.length">
+            In {{ editing.paketNamen.length === 1 ? 'Paket' : 'Paketen' }}:
+            {{ editing.paketNamen.join(', ') }} — zu ändern unter „Pakete".
+          </template>
+          <template v-else-if="editing.oeffentlich">
+            In keinem Paket. Zuordnen lässt sich das unter „Pakete".
           </template>
           <template v-else>
-            Mehrfachauswahl möglich — öffentlich und in Paketen zugleich ist erlaubt.
+            Weder öffentlich noch in einem Paket — das Video sieht nur, wem es unter „Nutzer"
+            einzeln freigeschaltet wurde. Pakete werden unter „Pakete" zugeordnet.
           </template>
         </p>
       </div>

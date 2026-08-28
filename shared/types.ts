@@ -84,6 +84,11 @@ export interface Video {
   aktiv: boolean
 }
 
+/** Ein Paket aus Sicht der Verwaltung — samt der zugeordneten Videos. */
+export interface PaketEintrag extends Paket {
+  videoIds: number[]
+}
+
 /**
  * Ein Paket mit seinem Inhaltsverzeichnis — die öffentliche Paketübersicht.
  *
