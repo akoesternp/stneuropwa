@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import GButton from '@/components/ui/GButton.vue'
@@ -319,6 +319,58 @@ onBeforeUnmount(() => {
             <div><dt>Hilfsmittel</dt><dd>{{ video.hilfsmittel || 'keine' }}</dd></div>
           </dl>
 
+          <!--
+            Wo diese Übung eingeordnet ist — und zwar begehbar: wer hier
+            landet, sucht als Nächstes meist Verwandtes, und der Weg dorthin
+            führte sonst über die Übersicht zurück.
+          -->
+          <div class="zuordnung">
+            <span class="t-eyebrow">Gehört zu</span>
+
+            <div v-if="video.zielgruppenNamen.length" class="gruppe">
+              <span class="gruppe-titel t-meta">Zielgruppen</span>
+              <span class="verweise">
+                <RouterLink
+                  v-for="name in video.zielgruppenNamen"
+                  :key="name"
+                  class="verweis zielgruppe"
+                  :to="{ name: 'home', query: { zielgruppe: name } }"
+                >
+                  {{ name }}
+                </RouterLink>
+              </span>
+            </div>
+
+            <div v-if="video.paketNamen.length" class="gruppe">
+              <span class="gruppe-titel t-meta">Pakete</span>
+              <span class="verweise">
+                <!--
+                  paketIds und paketNamen kommen vom Server in derselben
+                  Reihenfolge — der Index verbindet Name und Ziel.
+                -->
+                <RouterLink
+                  v-for="(name, stelle) in video.paketNamen"
+                  :key="name"
+                  class="verweis"
+                  :to="{ name: 'paket', params: { id: video.paketIds[stelle] } }"
+                >
+                  {{ name }}
+                </RouterLink>
+              </span>
+            </div>
+
+            <p v-if="video.oeffentlich" class="frei t-meta">
+              Frei zugänglich — auch ohne Anmeldung abspielbar.
+            </p>
+
+            <p
+              v-else-if="!video.zielgruppenNamen.length && !video.paketNamen.length"
+              class="frei t-meta"
+            >
+              Einzeln für Sie freigeschaltet.
+            </p>
+          </div>
+
           <label v-if="video.datei" class="schleife">
             <input v-model="wiederholen" type="checkbox" />
             In Schleife wiederholen
@@ -334,10 +386,6 @@ onBeforeUnmount(() => {
         </aside>
       </div>
 
-      <p class="meta t-meta">
-        {{ [...(video.oeffentlich ? ['Frei verfügbar'] : []), ...video.paketNamen].join(' · ')
-        }}<template v-if="video.dauer"> · {{ video.dauer }}</template>
-      </p>
     </template>
 
     <div v-else class="missing">
@@ -527,6 +575,62 @@ onBeforeUnmount(() => {
   text-align: right;
 }
 
+/* ── Zuordnung ─────────────────────────────────────────────────────── */
+.zuordnung {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-hairline);
+}
+
+.gruppe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gruppe-titel {
+  color: var(--c-text-muted);
+}
+
+.verweise {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.verweis {
+  padding: 4px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  background: var(--c-white);
+  font-size: var(--fs-secondary);
+  color: var(--c-text-dark);
+}
+
+.verweis:hover {
+  border-color: var(--c-action);
+  color: var(--c-action);
+  text-decoration: none;
+}
+
+/* Die oberste Ebene etwas kräftiger als die Pakete darunter. */
+.verweis.zielgruppe {
+  border-color: var(--c-action);
+  color: var(--c-action);
+}
+
+.verweis.zielgruppe:hover {
+  background: var(--c-action);
+  color: var(--c-white);
+}
+
+.frei {
+  color: var(--c-text-muted);
+}
+
 .schleife {
   display: flex;
   align-items: center;
@@ -541,7 +645,4 @@ onBeforeUnmount(() => {
   accent-color: var(--c-action);
 }
 
-.meta {
-  color: var(--c-text-muted);
-}
 </style>

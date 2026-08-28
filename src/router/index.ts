@@ -79,6 +79,13 @@ const router = createRouter({
           meta: { public: true },
         },
         {
+          // Die flache Liste aller Übungen — zum Suchen statt zum Stöbern.
+          path: 'videos',
+          name: 'videos',
+          component: () => import('@/views/VideoListeView.vue'),
+          meta: { public: true },
+        },
+        {
           /*
            * Ebenfalls öffentlich: ob dieses Video abspielbar ist, entscheidet
            * der Stream-Endpunkt am Cookie — ein Unberechtigter sieht hier nur

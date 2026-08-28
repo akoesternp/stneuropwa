@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import FilterLeiste from '@/components/FilterLeiste.vue'
 import PaketKarte from '@/components/PaketKarte.vue'
 import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
@@ -10,7 +11,6 @@ import { useFortschrittStore } from '@/stores/fortschritt'
 import { usePaketeStore } from '@/stores/pakete'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
-import { SCHWIERIGKEITEN } from '@shared/types'
 import type { Video } from '@/types'
 
 /**
@@ -54,12 +54,6 @@ watch(
     if (angemeldet) void fortschritt.reload()
   },
 )
-
-function umschalten(liste: string[], wert: string) {
-  const index = liste.indexOf(wert)
-  if (index === -1) liste.push(wert)
-  else liste.splice(index, 1)
-}
 
 const filterAktiv = computed(
   () =>
@@ -271,52 +265,21 @@ const uebungen = computed(() => {
       Ein Merkmal hängt am Video und trägt sich nach oben durch: der Filter
       zeigt deshalb Zielgruppen, Pakete und Übungen zugleich.
     -->
-    <div class="filter">
-      <div v-if="zielgruppe" class="ausschnitt">
-        <span class="ausschnitt-name">{{ zielgruppe }}</span>
-        <button type="button" class="ausschnitt-weg" @click="zielgruppeVerlassen">
-          ✕ Alle Zielgruppen
-        </button>
-      </div>
-
-      <label class="suchfeld">
-        <span class="visually-hidden">Übungen durchsuchen</span>
-        <span class="lupe" aria-hidden="true">⌕</span>
-        <input
-          v-model="suche"
-          type="search"
-          placeholder="Übung, Beschreibung oder Hilfsmittel suchen …"
-        />
-      </label>
-
-      <div class="chips">
-        <button
-          v-for="bereich in videos.bereiche"
-          :key="bereich"
-          type="button"
-          class="chip"
-          :class="{ an: bereichFilter.includes(bereich) }"
-          @click="umschalten(bereichFilter, bereich)"
-        >
-          {{ bereich }}
-        </button>
-
-        <span v-if="videos.bereiche.length" class="trenner" aria-hidden="true" />
-
-        <button
-          v-for="grad in SCHWIERIGKEITEN"
-          :key="grad"
-          type="button"
-          class="chip"
-          :class="{ an: schwierigkeitFilter.includes(grad) }"
-          @click="umschalten(schwierigkeitFilter, grad)"
-        >
-          {{ grad }}
-        </button>
-
-        <GButton v-if="filterAktiv" variant="text" @click="zuruecksetzen">Zurücksetzen</GButton>
-      </div>
-    </div>
+    <FilterLeiste
+      v-model:suche="suche"
+      v-model:bereiche="bereichFilter"
+      v-model:grade="schwierigkeitFilter"
+      :verfuegbare-bereiche="videos.bereiche"
+    >
+      <template #vor>
+        <div v-if="zielgruppe" class="ausschnitt">
+          <span class="ausschnitt-name">{{ zielgruppe }}</span>
+          <button type="button" class="ausschnitt-weg" @click="zielgruppeVerlassen">
+            ✕ Alle Zielgruppen
+          </button>
+        </div>
+      </template>
+    </FilterLeiste>
 
     <p v-if="zielgruppeUnbekannt" class="state warn" role="alert">
       Die Zielgruppe „{{ zielgruppe }}" gibt es nicht mehr.
@@ -503,13 +466,7 @@ const uebungen = computed(() => {
   gap: 10px;
 }
 
-/* ── Suche und Filter ──────────────────────────────────────────────── */
-.filter {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
+/* Der gewählte Ausschnitt steht als Einschub in der Filterleiste. */
 .ausschnitt {
   display: flex;
   align-items: center;
@@ -537,75 +494,6 @@ const uebungen = computed(() => {
 
 .ausschnitt-weg:hover {
   color: var(--c-action);
-}
-
-.suchfeld {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 22px;
-  border-radius: var(--r-nav);
-  background: var(--c-surface);
-  max-width: 560px;
-}
-
-.suchfeld:focus-within {
-  outline: 2px solid var(--c-focus);
-  outline-offset: 1px;
-}
-
-.lupe {
-  color: var(--c-text-muted);
-  font-size: 18px;
-}
-
-.suchfeld input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  font-size: var(--fs-body);
-  font-weight: 500;
-}
-
-.suchfeld input:focus {
-  outline: 0;
-}
-
-.chips {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.chip {
-  padding: 7px 16px;
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-pill);
-  background: var(--c-white);
-  color: var(--c-text-dark);
-  font-family: inherit;
-  font-size: var(--fs-secondary);
-  cursor: pointer;
-}
-
-.chip:hover {
-  border-color: var(--c-action);
-  color: var(--c-action);
-}
-
-.chip.an {
-  background: var(--c-dark);
-  border-color: var(--c-dark);
-  color: var(--c-white);
-}
-
-.trenner {
-  width: 1px;
-  height: 22px;
-  background: var(--c-border);
-  margin: 0 4px;
 }
 
 /* ── Abschnitte ────────────────────────────────────────────────────── */

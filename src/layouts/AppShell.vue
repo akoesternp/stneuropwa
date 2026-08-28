@@ -31,6 +31,11 @@ async function logout() {
           <GLogo :width="127" :height="44" />
         </RouterLink>
 
+        <nav class="nav" aria-label="Hauptnavigation">
+          <RouterLink :to="{ name: 'home' }" class="nav-item">Übersicht</RouterLink>
+          <RouterLink :to="{ name: 'videos' }" class="nav-item">Alle Übungen</RouterLink>
+        </nav>
+
         <div class="tools">
           <template v-if="auth.isAuthenticated">
             <span class="account-chip">
