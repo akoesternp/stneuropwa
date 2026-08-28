@@ -162,15 +162,31 @@ async function createSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
 
-    /* Ein Video kann in mehreren Paketen liegen; kein Eintrag = öffentlich. */
+    /*
+     * Ein Video kann in mehreren Paketen liegen; kein Eintrag = öffentlich.
+     * Die Reihenfolge hängt an der Zuordnung, nicht am Video: dieselbe Übung
+     * kann in zwei Paketen an unterschiedlicher Stelle stehen.
+     */
     await conn.query(
       `CREATE TABLE IF NOT EXISTS video_pakete (
         video_id INT UNSIGNED NOT NULL,
         paket_id INT UNSIGNED NOT NULL,
+        sortierung INT NOT NULL DEFAULT 0,
         PRIMARY KEY (video_id, paket_id),
-        KEY ix_paket (paket_id)
+        KEY ix_paket (paket_id, sortierung)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
+
+    const vpSpalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM video_pakete`)
+    if (!vpSpalten.some((spalte) => spalte.Field === 'sortierung')) {
+      await conn.query(`ALTER TABLE video_pakete ADD COLUMN sortierung INT NOT NULL DEFAULT 0`)
+      // Bisher galt die Sortierung des Videos — die wird übernommen, damit
+      // die gewohnte Reihenfolge nicht mit dem Update durcheinandergerät.
+      await conn.query(
+        `UPDATE video_pakete vp JOIN videos v ON v.id = vp.video_id
+         SET vp.sortierung = v.sortierung`,
+      )
+    }
 
     /*
      * Umstellung von der einen paket_id auf die n:m-Tabelle. Die Spalte fällt
@@ -464,7 +480,7 @@ export async function listPaketeMitVideos(): Promise<PaketEintrag[]> {
   if (!pakete.length) return []
 
   const zuordnungen: { video_id: number; paket_id: number }[] = await getPool().query(
-    'SELECT video_id, paket_id FROM video_pakete',
+    'SELECT video_id, paket_id FROM video_pakete ORDER BY sortierung, video_id',
   )
 
   const nachPaket = new Map<number, number[]>()
@@ -512,9 +528,10 @@ export async function savePaket(
     if (videoIds !== null) {
       await conn.query('DELETE FROM video_pakete WHERE paket_id = ?', [paketId])
       if (videoIds.length) {
+        // Die Stelle in der Liste IST die Reihenfolge im Paket.
         await conn.batch(
-          'INSERT INTO video_pakete (video_id, paket_id) VALUES (?, ?)',
-          videoIds.map((videoId) => [videoId, paketId]),
+          'INSERT INTO video_pakete (video_id, paket_id, sortierung) VALUES (?, ?, ?)',
+          videoIds.map((videoId, stelle) => [videoId, paketId, stelle + 1]),
         )
       }
     }
@@ -739,10 +756,21 @@ export async function saveVideo(
     if (daten.paketIds !== null) {
       await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [videoId])
       if (daten.paketIds.length) {
-        await conn.batch(
-          'INSERT INTO video_pakete (video_id, paket_id) VALUES (?, ?)',
-          daten.paketIds.map((paketId) => [videoId, paketId]),
-        )
+        /*
+         * Ans Ende des jeweiligen Pakets. Die Reihenfolge innerhalb eines
+         * Pakets wird in der Paketmaske gepflegt; von hier aus soll ein Video
+         * einsortiert werden können, ohne die übrigen zu verschieben.
+         */
+        for (const paketId of daten.paketIds) {
+          const [letzte]: { max: number | null }[] = await conn.query(
+            'SELECT MAX(sortierung) max FROM video_pakete WHERE paket_id = ?',
+            [paketId],
+          )
+          await conn.query(
+            'INSERT INTO video_pakete (video_id, paket_id, sortierung) VALUES (?, ?, ?)',
+            [videoId, paketId, (Number(letzte?.max) || 0) + 1],
+          )
+        }
       }
     }
 
@@ -813,7 +841,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
      FROM video_pakete vp
      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
      WHERE vp.paket_id IN (?)
-     ORDER BY v.sortierung, v.id`,
+     ORDER BY vp.sortierung, v.sortierung, v.id`,
     benutzerId === null
       ? [pakete.map((paket) => paket.id)]
       : [benutzerId, benutzerId, pakete.map((paket) => paket.id)],

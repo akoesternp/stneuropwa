@@ -89,6 +89,31 @@ const gefiltert = computed(() => {
 const sichtbar = computed(() => gefiltert.value.slice(0, MAX_ZEILEN))
 const verborgen = computed(() => Math.max(0, gefiltert.value.length - MAX_ZEILEN))
 
+/**
+ * Die enthaltenen Übungen in Paketreihenfolge — die Stelle in videoIds IST
+ * die Reihenfolge, deshalb genügt ein Nachschlagen je Eintrag.
+ */
+const enthalten = computed(() =>
+  (editing.value?.videoIds ?? [])
+    .map((id) => videos.value.find((video) => video.id === id))
+    .filter((video): video is Video => Boolean(video)),
+)
+
+/** Verschiebt einen Eintrag an eine neue Stelle (1-basiert, wie angezeigt). */
+function verschiebe(von: number, nachAnzeige: number) {
+  if (!editing.value) return
+  const liste = editing.value.videoIds
+  const nach = Math.min(Math.max(1, Math.round(nachAnzeige)), liste.length) - 1
+  if (nach === von) return
+
+  const [eintrag] = liste.splice(von, 1)
+  if (eintrag !== undefined) liste.splice(nach, 0, eintrag)
+}
+
+function entferne(index: number) {
+  editing.value?.videoIds.splice(index, 1)
+}
+
 function toggleVideo(id: number) {
   if (!editing.value) return
   const index = editing.value.videoIds.indexOf(id)
@@ -292,9 +317,72 @@ async function remove(row: PaketEintrag) {
             eine begrenzte Zahl Zeilen. „Nur ausgewählte" beantwortet die
             Gegenfrage — was ist eigentlich schon drin.
           -->
+          <!--
+            Die Übersicht des Pakets: Reihenfolge, wie sie später im Portal
+            steht. Die Nummer ist änderbar — bei einem langen Paket wäre das
+            Klicken mit Pfeilen von Platz 30 auf 1 eine Zumutung.
+          -->
+          <div class="enthalten">
+            <div class="auswahl-kopf">
+              <span class="t-eyebrow">Enthaltene Übungen — Reihenfolge im Portal</span>
+              <span class="zaehler t-meta">
+                {{ enthalten.length }} {{ enthalten.length === 1 ? 'Übung' : 'Übungen' }}
+              </span>
+            </div>
+
+            <ol v-if="enthalten.length" class="reihe">
+              <li v-for="(video, index) in enthalten" :key="video.id" class="reihe-zeile">
+                <input
+                  class="nummer"
+                  type="number"
+                  min="1"
+                  :max="enthalten.length"
+                  :value="index + 1"
+                  :aria-label="`Position von ${video.titel}`"
+                  @change="verschiebe(index, Number(($event.target as HTMLInputElement).value))"
+                />
+
+                <span class="zeile-text">
+                  <span class="zeile-titel t-truncate">
+                    {{ video.titel }}
+                    <span v-if="!video.aktiv" class="marke inaktiv">inaktiv</span>
+                    <span v-if="!video.datei" class="marke ohne">keine Datei</span>
+                  </span>
+                  <span class="zeile-meta t-meta">
+                    {{ [video.bereich, video.schwierigkeit, video.dauer].filter(Boolean).join(' · ') || 'ohne Merkmale' }}
+                  </span>
+                </span>
+
+                <span class="reihe-knoepfe">
+                  <button
+                    type="button"
+                    :disabled="index === 0"
+                    aria-label="Nach oben"
+                    @click="verschiebe(index, index)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="index === enthalten.length - 1"
+                    aria-label="Nach unten"
+                    @click="verschiebe(index, index + 2)"
+                  >
+                    ↓
+                  </button>
+                  <button type="button" class="weg" aria-label="Entfernen" @click="entferne(index)">
+                    ×
+                  </button>
+                </span>
+              </li>
+            </ol>
+
+            <p v-else class="hint">Noch keine Übung zugeordnet — unten auswählen.</p>
+          </div>
+
           <div class="auswahl">
             <div class="auswahl-kopf">
-              <span class="t-eyebrow">Übungen im Paket</span>
+              <span class="t-eyebrow">Übungen hinzufügen</span>
               <span class="zaehler t-meta">
                 {{ editing.videoIds.length }} von {{ videos.length }} ausgewählt
               </span>
@@ -512,6 +600,89 @@ async function remove(row: PaketEintrag) {
   width: 16px;
   height: 16px;
   accent-color: var(--c-action);
+}
+
+/* ── Enthaltene Übungen ────────────────────────────────────────────── */
+.enthalten {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-hairline-2);
+}
+
+.reihe {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--c-hairline);
+  border-radius: var(--r-card);
+}
+
+.reihe-zeile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-hairline-3);
+}
+
+.reihe-zeile:last-child {
+  border-bottom: 0;
+}
+
+/* Änderbar statt bloß angezeigt: von Platz 30 auf 1 zu klicken wäre eine Zumutung. */
+.nummer {
+  flex: none;
+  width: 56px;
+  padding: 5px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-white);
+  font-family: var(--font-num);
+  font-size: var(--fs-secondary);
+  text-align: center;
+}
+
+.reihe-knoepfe {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.reihe-knoepfe button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-white);
+  color: var(--c-text-dark);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reihe-knoepfe button:hover:not(:disabled) {
+  border-color: var(--c-action);
+  color: var(--c-action);
+}
+
+.reihe-knoepfe button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.reihe-knoepfe .weg:hover {
+  border-color: var(--c-red);
+  color: var(--c-red);
+}
+
+.marke.ohne {
+  background: var(--c-surface);
+  color: var(--c-text-muted);
 }
 
 /* ── Videoauswahl ──────────────────────────────────────────────────── */
