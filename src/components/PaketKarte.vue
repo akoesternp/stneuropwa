@@ -32,6 +32,20 @@ const offen = computed(() => props.paket.videos.filter((video) => !video.freiges
 const komplettGesperrt = computed(
   () => props.paket.videos.length > 0 && offen.value === props.paket.videos.length,
 )
+
+/** Ab wie vielen Übungen die Vorschau abbricht. */
+const VORSCHAU = 3
+
+const hatMehr = computed(() => props.paket.videos.length > VORSCHAU)
+
+/*
+ * Bei mehr Übungen wird eine vierte Zeile mitgerendert und angeschnitten: ein
+ * Verlauf über einer sauber endenden Liste sähe aus wie ein Schatten — erst
+ * die halbe Zeile darunter erzählt „hier geht es weiter".
+ */
+const vorschauVideos = computed(() =>
+  props.paket.videos.slice(0, hatMehr.value ? VORSCHAU + 1 : VORSCHAU),
+)
 </script>
 
 <template>
@@ -71,8 +85,8 @@ const komplettGesperrt = computed(
 
     <p v-if="paket.beschreibung" class="beschreibung">{{ paket.beschreibung }}</p>
 
-    <ul class="vorschau">
-      <li v-for="video in paket.videos.slice(0, 3)" :key="video.id">
+    <ul class="vorschau" :class="{ mehr: hatMehr }">
+      <li v-for="video in vorschauVideos" :key="video.id">
         <span class="t-truncate">{{ video.titel }}</span>
         <span class="dauer t-meta">{{ video.dauer || '–' }}</span>
       </li>
@@ -82,7 +96,7 @@ const komplettGesperrt = computed(
       {{ paket.videos.length }} Übung{{ paket.videos.length === 1 ? '' : 'en'
       }}<template v-if="paket.gesamtdauer"> · {{ paket.gesamtdauer }} Laufzeit</template>
       <template v-if="offen"> · {{ offen }} gesperrt</template>
-      <template v-if="paket.videos.length > 3"> · vollständige Liste ansehen</template>
+      <template v-if="hatMehr"> · vollständige Liste ansehen</template>
     </p>
   </RouterLink>
 </template>
@@ -159,12 +173,16 @@ const komplettGesperrt = computed(
 }
 
 .vorschau {
+  --zeile: 21px;
+  --abstand: 8px;
+  --kopfrand: 14px;
+
   list-style: none;
   margin: 0;
-  padding: 14px 0 0;
+  padding: var(--kopfrand) 0 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--abstand);
   border-top: 1px solid var(--c-hairline-2);
 }
 
@@ -174,7 +192,33 @@ const komplettGesperrt = computed(
   justify-content: space-between;
   gap: 12px;
   font-size: var(--fs-secondary);
+  /* Feste Zeilenhöhe: die Höhe unten wird gerechnet, nicht geraten. */
+  line-height: 1.5;
   min-width: 0;
+}
+
+/*
+ * Drei volle Zeilen, von der vierten nur ein Streifen. Das trägt, weil jede
+ * Zeile durch t-truncate einzeilig bleibt — bei umbrechendem Text wäre eine
+ * gerechnete Höhe falsch.
+ */
+.vorschau.mehr {
+  position: relative;
+  max-height: calc(var(--kopfrand) + 3 * var(--zeile) + 3 * var(--abstand) + 9px);
+  overflow: hidden;
+}
+
+.vorschau.mehr::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 30px;
+  /*
+   * Von durchsichtigem Weiß nach Weiß statt von `transparent`: die Kartenfläche
+   * ist weiß, und so bleibt der Verlauf frei von einem Graustich.
+   */
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), var(--c-white));
+  pointer-events: none;
 }
 
 .dauer {
