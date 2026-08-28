@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
+import FreischaltenDialog from '@/components/FreischaltenDialog.vue'
 import GButton from '@/components/ui/GButton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCreditsStore } from '@/stores/credits'
@@ -33,8 +34,19 @@ const credits = useCreditsStore()
 const guthaben = computed(() => auth.user?.credits ?? 0)
 const reichtDasGuthaben = computed(() => guthaben.value >= CREDITS_JE_VIDEO)
 
+/**
+ * Zwischenschritt vor dem Abbuchen.
+ *
+ * Der Knopf öffnet nur die Rückfrage; gebucht wird erst deren Bestätigung.
+ * Wer über die Suche hier gelandet ist, hat oft mehrere ähnliche Übungen
+ * offen — der Dialog nennt deshalb den Titel noch einmal.
+ */
+const frageOffen = ref(false)
+
 async function freischalten(): Promise<void> {
-  await credits.kaufe('video', Number(route.params.id))
+  const erfolg = await credits.kaufe('video', Number(route.params.id))
+  // Bei einem Fehler bleibt die Rückfrage stehen: die Meldung steht darin.
+  if (erfolg) frageOffen.value = false
 }
 
 onMounted(() => {
@@ -295,6 +307,10 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
+      <!-- An die Stelle des Sperrhinweises tritt der Player; die Quittung
+           sagt, was das gekostet hat. -->
+      <p v-if="credits.hinweis" class="quittung" role="status">{{ credits.hinweis }}</p>
+
       <!--
         Gesperrt: kein Player, aber alles andere bleibt stehen. Titel,
         Beschreibung und der Block „Gehört zu" sind genau das, was jemand
@@ -312,16 +328,15 @@ onBeforeUnmount(() => {
           </p>
           <div class="soon-aktionen">
             <GButton
+              v-if="reichtDasGuthaben"
               variant="dark"
-              :disabled="credits.busy || !reichtDasGuthaben"
-              @click="freischalten"
+              :disabled="credits.busy"
+              @click="frageOffen = true"
             >
-              {{
-                reichtDasGuthaben
-                  ? `Für ${CREDITS_JE_VIDEO} ${CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits'} freischalten`
-                  : 'Guthaben reicht nicht'
-              }}
+              Für {{ CREDITS_JE_VIDEO }}
+              {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }} freischalten
             </GButton>
+            <GButton v-else variant="dark" :to="{ name: 'credits' }">Credits aufladen</GButton>
           </div>
         </template>
 
@@ -466,6 +481,20 @@ onBeforeUnmount(() => {
         <GButton variant="outline" :to="{ name: 'home' }">Zur Übersicht</GButton>
       </div>
     </div>
+
+    <FreischaltenDialog
+      v-if="video"
+      :offen="frageOffen"
+      art="Übung"
+      :name="video.titel"
+      :zusatz="[video.bereich, video.dauer].filter(Boolean).join(' · ')"
+      :kosten="CREDITS_JE_VIDEO"
+      :guthaben="guthaben"
+      :busy="credits.busy"
+      :fehler="credits.fehler"
+      @bestaetigen="freischalten"
+      @abbrechen="frageOffen = false"
+    />
   </section>
 </template>
 
@@ -566,6 +595,11 @@ onBeforeUnmount(() => {
   font-size: var(--fs-secondary);
   color: var(--c-text-muted);
   line-height: 1.6;
+}
+
+.quittung {
+  font-size: var(--fs-secondary);
+  color: var(--c-action);
 }
 
 .kauf-fehler {

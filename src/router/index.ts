@@ -87,6 +87,16 @@ const router = createRouter({
         },
         {
           /*
+           * Preisliste und Staffel — auch ohne Anmeldung: was etwas kostet,
+           * will man wissen, bevor man ein Konto anlegt.
+           */
+          path: 'credits',
+          name: 'credits',
+          component: () => import('@/views/CreditsView.vue'),
+          meta: { public: true },
+        },
+        {
+          /*
            * Ebenfalls öffentlich: ob dieses Video abspielbar ist, entscheidet
            * der Stream-Endpunkt am Cookie — ein Unberechtigter sieht hier nur
            * die Fehlermeldung, nie den Inhalt.

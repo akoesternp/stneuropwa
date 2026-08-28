@@ -1087,6 +1087,45 @@ export type KaufErgebnis =
   | { status: 'leer' }
 
 /**
+ * Schreibt Credits gut und liefert den neuen Stand — `null`, wenn es das
+ * Konto nicht (mehr) gibt oder es gesperrt ist.
+ *
+ * Bewusst getrennt vom Bezahlvorgang: wer später einen Zahlungsanbieter
+ * anbindet, ruft genau diese Funktion auf, sobald der Eingang bestätigt ist.
+ * Die Buchung selbst bleibt dieselbe.
+ */
+export async function gutschreibeCredits(
+  benutzerId: number,
+  menge: number,
+): Promise<number | null> {
+  await ensureReady()
+  if (!Number.isInteger(menge) || menge <= 0) return null
+
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const konten: Record<string, unknown>[] = await conn.query(
+      'SELECT credits FROM benutzer WHERE id = ? AND aktiv = 1 FOR UPDATE',
+      [benutzerId],
+    )
+    if (!konten[0]) {
+      await conn.rollback()
+      return null
+    }
+
+    await conn.query('UPDATE benutzer SET credits = credits + ? WHERE id = ?', [menge, benutzerId])
+    await conn.commit()
+    return (Number(konten[0].credits) || 0) + menge
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/**
  * Schaltet eine einzelne Übung gegen Credits frei.
  *
  * Alles in EINER Transaktion, und das Guthaben wird mit FOR UPDATE gesperrt:

@@ -60,6 +60,61 @@ export function paketPreis(anzahlVideos: number): number {
   return Math.max(1, Math.round(anzahlVideos * CREDITS_JE_VIDEO * PAKET_RABATT))
 }
 
+/* ── Credits kaufen ────────────────────────────────────────────────────── */
+
+/**
+ * Was ein einzelner Credit kostet, in Cent.
+ *
+ * Alles in Cent und ganzzahlig: Preise als Fließkommazahl führen früher oder
+ * später zu 19,999999 auf einer Rechnung.
+ */
+export const CREDIT_BASISPREIS_CENT = 200
+
+/** Eine Stufe der Rabattstaffel. */
+export interface CreditPaket {
+  /**
+   * Stabile Kennung. Der Client schickt beim Kauf NUR sie — nie einen Preis
+   * und nie eine Menge, sonst könnte man sich beides selbst aussuchen.
+   */
+  id: string
+  /** Name der Stufe für die Oberfläche. */
+  name: string
+  credits: number
+  preisCent: number
+}
+
+/**
+ * Die Rabattstaffel: je mehr auf einmal, desto günstiger der einzelne Credit.
+ *
+ * Bewusst eine feste Liste statt einer Formel — so lässt sich jede Stufe
+ * einzeln ansetzen, ohne dass eine Kurve die Preise bestimmt. Zum Ändern
+ * genügt es, hier Zahlen zu tauschen; Oberfläche und Server ziehen nach.
+ */
+export const CREDIT_PAKETE: readonly CreditPaket[] = [
+  { id: 'start', name: 'Zum Ausprobieren', credits: 5, preisCent: 1000 },
+  { id: 'klein', name: 'Kleines Paket', credits: 15, preisCent: 2700 },
+  { id: 'gross', name: 'Großes Paket', credits: 40, preisCent: 6400 },
+  { id: 'jahr', name: 'Jahresvorrat', credits: 100, preisCent: 14000 },
+] as const
+
+export function creditPaket(id: string): CreditPaket | undefined {
+  return CREDIT_PAKETE.find((stufe) => stufe.id === id)
+}
+
+/** Preis eines einzelnen Credits in dieser Stufe, in Cent (kann krumm sein). */
+export function preisJeCreditCent(paket: CreditPaket): number {
+  return paket.preisCent / paket.credits
+}
+
+/**
+ * Ersparnis gegenüber dem Basispreis, in ganzen Prozent. 0 = kein Nachlass.
+ */
+export function rabattProzent(paket: CreditPaket): number {
+  const voll = paket.credits * CREDIT_BASISPREIS_CENT
+  if (voll <= 0) return 0
+  return Math.max(0, Math.round((1 - paket.preisCent / voll) * 100))
+}
+
 /**
  * Eine Zielgruppe bündelt Pakete UND einzelne Videos — die oberste Ebene der
  * Gliederung.

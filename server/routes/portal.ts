@@ -2,8 +2,10 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Router } from 'express'
 import type { Response } from 'express'
+import { creditPaket } from '../../shared/types.js'
 import {
   darfVideoSehen,
+  gutschreibeCredits,
   kaufePaket,
   kaufeVideo,
   katalogVideos,
@@ -82,6 +84,53 @@ portalRouter.get('/pakete', async (req, res) => {
       }
     }),
   })
+})
+
+/**
+ * Credits kaufen — der Platzhalter, bis ein Zahlungsanbieter angebunden ist.
+ *
+ * Ohne Bezahlung wäre dieser Endpunkt eine Gelddruckmaschine, deshalb ist er
+ * standardmäßig ZU. Nur mit CREDITS_TESTKAUF=1 schreibt er wirklich gut —
+ * gedacht für die Entwicklung, damit sich der Freischalt-Weg durchspielen
+ * lässt. Auf einem erreichbaren Server bleibt die Variable ungesetzt, und der
+ * Endpunkt antwortet mit 501.
+ *
+ * Der Client schickt nur die Kennung der Staffelstufe. Menge und Preis stehen
+ * in CREDIT_PAKETE — käme beides aus der Anfrage, könnte man sich sein
+ * Guthaben selbst diktieren.
+ */
+const TESTKAUF_ERLAUBT = process.env.CREDITS_TESTKAUF === '1'
+
+portalRouter.get('/credits/moeglich', requireUser, (_req, res) => {
+  res.json({ moeglich: TESTKAUF_ERLAUBT })
+})
+
+portalRouter.post('/credits/kaufen', requireUser, async (req, res) => {
+  const stufe = creditPaket(String(req.body?.paket ?? ''))
+  if (!stufe) {
+    res.status(400).json({ error: 'Unbekanntes Credit-Paket.' })
+    return
+  }
+
+  if (!TESTKAUF_ERLAUBT) {
+    res.status(501).json({
+      error:
+        'Der Bezahlvorgang ist noch nicht angebunden. Melden Sie sich bei uns, ' +
+        'um Credits zu erwerben.',
+    })
+    return
+  }
+
+  const credits = await gutschreibeCredits(Number(req.session!.subject), stufe.credits)
+  if (credits === null) {
+    res.status(404).json({ error: 'Nicht gefunden.' })
+    return
+  }
+
+  console.log(
+    `[Credits] Testkauf: Konto ${req.session!.subject} +${stufe.credits} (${stufe.id}), neuer Stand ${credits}`,
+  )
+  res.json({ ok: true, gutgeschrieben: stufe.credits, credits })
 })
 
 /**

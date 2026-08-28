@@ -34,6 +34,8 @@ async function logout() {
         <nav class="nav" aria-label="Hauptnavigation">
           <RouterLink :to="{ name: 'home' }" class="nav-item">Übersicht</RouterLink>
           <RouterLink :to="{ name: 'videos' }" class="nav-item">Alle Übungen</RouterLink>
+          <!-- Auch für Gäste: was etwas kostet, will man vor dem Konto wissen. -->
+          <RouterLink :to="{ name: 'credits' }" class="nav-item">Credits</RouterLink>
         </nav>
 
         <div class="tools">
@@ -53,13 +55,19 @@ async function logout() {
             <!--
               Das Guthaben gehört neben den Namen: es entscheidet an jeder
               gesperrten Kachel darüber, ob die Schaltfläche dort etwas nützt.
+              Als Verweis, weil die nächste Frage danach immer „wie bekomme ich
+              mehr davon" lautet.
             -->
-            <span class="guthaben" :title="`Guthaben zum Freischalten`">
+            <RouterLink
+              class="guthaben"
+              :to="{ name: 'credits' }"
+              title="Guthaben — hier nachkaufen"
+            >
               <span class="guthaben-zahl">{{ auth.user?.credits ?? 0 }}</span>
               <span class="t-meta">{{
                 (auth.user?.credits ?? 0) === 1 ? 'Credit' : 'Credits'
               }}</span>
-            </span>
+            </RouterLink>
             <GButton variant="outline" size="sm" @click="logout">Abmelden</GButton>
           </template>
 
@@ -225,6 +233,12 @@ async function logout() {
   border-radius: var(--r-nav);
   background: var(--c-dark);
   color: var(--c-on-dark);
+}
+
+.guthaben:hover {
+  color: var(--c-white);
+  text-decoration: none;
+  filter: brightness(1.25);
 }
 
 .guthaben-zahl {

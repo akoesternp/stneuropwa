@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import FreischaltenDialog from '@/components/FreischaltenDialog.vue'
 import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
@@ -56,8 +57,14 @@ const erledigtAnzahl = computed(
 const guthaben = computed(() => auth.user?.credits ?? 0)
 const reichtDasGuthaben = computed(() => guthaben.value >= (paket.value?.kosten ?? 0))
 
+/** Ein Paket kostet mehr als eine Übung — die Rückfrage erst recht. */
+const frageOffen = ref(false)
+
 async function freischalten(): Promise<void> {
-  if (paket.value) await credits.kaufe('paket', paket.value.id)
+  if (!paket.value) return
+  const erfolg = await credits.kaufe('paket', paket.value.id)
+  // Bei einem Fehler bleibt die Rückfrage stehen: die Meldung steht darin.
+  if (erfolg) frageOffen.value = false
 }
 
 /** Anteil einer Übung am Fortschrittsbalken der Kachel. */
@@ -94,6 +101,10 @@ function anteil(videoId: number, dauer: string): number {
         <span v-if="hatPaket" class="marke frei">Freigeschaltet</span>
       </header>
 
+      <!-- Der Kaufbereich verschwindet mit der letzten Sperre; ohne diese
+           Zeile bliebe die Abbuchung unquittiert. -->
+      <p v-if="credits.hinweis" class="quittung" role="status">{{ credits.hinweis }}</p>
+
       <div v-if="paket.videos.length" class="grid">
         <VideoTile
           v-for="video in paket.videos"
@@ -127,16 +138,15 @@ function anteil(videoId: number, dauer: string): number {
           </p>
           <div class="cta-knoepfe">
             <GButton
+              v-if="reichtDasGuthaben"
               variant="white"
-              :disabled="credits.busy || !reichtDasGuthaben"
-              @click="freischalten"
+              :disabled="credits.busy"
+              @click="frageOffen = true"
             >
-              {{
-                reichtDasGuthaben
-                  ? `Paket für ${paket.kosten} ${paket.kosten === 1 ? 'Credit' : 'Credits'} freischalten`
-                  : 'Guthaben reicht nicht'
-              }}
+              Paket für {{ paket.kosten }}
+              {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} freischalten
             </GButton>
+            <GButton v-else variant="white" :to="{ name: 'credits' }">Credits aufladen</GButton>
           </div>
         </template>
 
@@ -160,6 +170,20 @@ function anteil(videoId: number, dauer: string): number {
       <p class="t-h3">Dieses Paket gibt es nicht.</p>
       <GButton variant="outline" :to="{ name: 'home' }">Zur Übersicht</GButton>
     </div>
+
+    <FreischaltenDialog
+      v-if="paket"
+      :offen="frageOffen"
+      art="Paket"
+      :name="paket.name"
+      :zusatz="`${paket.videos.length} Übungen${paket.gesamtdauer ? ' · ' + paket.gesamtdauer + ' Laufzeit' : ''}`"
+      :kosten="paket.kosten"
+      :guthaben="guthaben"
+      :busy="credits.busy"
+      :fehler="credits.fehler"
+      @bestaetigen="freischalten"
+      @abbrechen="frageOffen = false"
+    />
   </section>
 </template>
 
@@ -227,6 +251,11 @@ function anteil(videoId: number, dauer: string): number {
   flex-direction: column;
   gap: 14px;
   align-items: flex-start;
+}
+
+.quittung {
+  font-size: var(--fs-secondary);
+  color: var(--c-action);
 }
 
 .cta-knoepfe {
