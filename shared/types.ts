@@ -40,11 +40,11 @@ export type Schwierigkeit = (typeof SCHWIERIGKEITEN)[number]
 /** Eine einzelne Übung kostet einen Credit. */
 export const CREDITS_JE_VIDEO = 1
 
-/** Im Paket ist dieselbe Übung günstiger — 20 % Nachlass auf den Einzelpreis. */
-export const PAKET_RABATT = 0.8
+/** Im Paket ist dieselbe Übung günstiger — 25 % Nachlass auf den Einzelpreis. */
+export const PAKET_RABATT = 0.75
 
 /**
- * Was ein Paket kostet: Anzahl der Übungen mal Einzelpreis, davon 80 %.
+ * Was ein Paket kostet: Anzahl der Übungen mal Einzelpreis, davon 75 %.
  *
  * Steht hier statt im Server, damit die Oberfläche denselben Preis nennt, den
  * der Server abbucht — eine Kachel, die 5 verspricht und 6 kostet, wäre
