@@ -100,6 +100,15 @@ async function onSubmit() {
           verfügbaren Übungen sind sofort zugänglich.
         </p>
 
+        <!--
+          Der Weg am Formular vorbei. Die Anmeldeseite ist kein Tor: die frei
+          zugänglichen Übungen stehen ohne Konto offen, und wer nur schauen
+          will, soll dafür nicht erst raten müssen.
+        -->
+        <RouterLink :to="{ name: 'home' }" class="weiter">
+          Ohne Anmeldung fortfahren →
+        </RouterLink>
+
         <div class="legal t-meta">
           <a href="#impressum">Impressum</a>
           <a href="#datenschutz">Datenschutz</a>
@@ -233,6 +242,26 @@ async function onSubmit() {
 .divider {
   height: 1px;
   background: var(--c-border);
+}
+
+/*
+ * Der Weg am Formular vorbei — sichtbar, aber ruhiger als der Anmeldeknopf:
+ * er ist die Nebentür, nicht der Haupteingang.
+ */
+.weiter {
+  align-self: flex-start;
+  padding: 9px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-secondary);
+  font-weight: 500;
+  color: var(--c-text-dark);
+}
+
+.weiter:hover {
+  border-color: var(--c-action);
+  color: var(--c-action);
+  text-decoration: none;
 }
 
 .legal {

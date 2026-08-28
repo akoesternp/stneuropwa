@@ -127,6 +127,15 @@ async function onSubmit() {
           Schon ein Konto? <RouterLink :to="{ name: 'login' }">Zur Anmeldung</RouterLink>
         </p>
 
+        <!--
+          Der Weg am Formular vorbei. Ein Konto bringt Fortschritt und
+          Freischaltungen, ist aber keine Bedingung fürs Zuschauen — wer erst
+          stöbern will, soll das nicht erst herausfinden müssen.
+        -->
+        <RouterLink :to="{ name: 'home' }" class="weiter">
+          Ohne Anmeldung fortfahren →
+        </RouterLink>
+
         <div class="legal t-meta">
           <a href="#impressum">Impressum</a>
           <a href="#datenschutz">Datenschutz</a>
@@ -239,6 +248,26 @@ async function onSubmit() {
 .divider {
   height: 1px;
   background: var(--c-border);
+}
+
+/*
+ * Der Weg am Formular vorbei — sichtbar, aber ruhiger als der Anmeldeknopf:
+ * er ist die Nebentür, nicht der Haupteingang.
+ */
+.weiter {
+  align-self: flex-start;
+  padding: 9px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-secondary);
+  font-weight: 500;
+  color: var(--c-text-dark);
+}
+
+.weiter:hover {
+  border-color: var(--c-action);
+  color: var(--c-action);
+  text-decoration: none;
 }
 
 .legal {
