@@ -40,7 +40,10 @@ portalRouter.get('/videos', async (req, res) => {
   res.json({
     videos,
     bereiche: bereiche.map((bereich) => bereich.name),
-    zielgruppen: zielgruppen.map((zielgruppe) => zielgruppe.name),
+    zielgruppen: zielgruppen.map((zielgruppe) => ({
+      name: zielgruppe.name,
+      beschreibung: zielgruppe.beschreibung,
+    })),
   })
 })
 

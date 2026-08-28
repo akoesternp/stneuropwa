@@ -28,12 +28,13 @@ const JE_ABSCHNITT = 8
 
 const suche = ref('')
 /**
- * Die Zielgruppe wirkt anders als die übrigen Filter: sie grenzt den Bestand
- * ein, bevor gegliedert wird — Suche, Bereich und Schwierigkeit suchen dann
- * innerhalb dieses Ausschnitts. Deshalb bleibt die Gliederung nach Paketen
- * erhalten, solange nur eine Zielgruppe gewählt ist.
+ * Die Zielgruppe ist keine Filterschaltfläche, sondern der Einstieg: Solange
+ * keine gewählt ist, zeigt die Seite, welche es gibt. Erst danach erscheinen
+ * die gewohnten Filter — und suchen innerhalb dieses Ausschnitts.
+ *
+ * Bewusst nur EINE: „für wen ist das" hat eine Antwort, keine Menge.
  */
-const zielgruppeFilter = ref<string[]>([])
+const zielgruppe = ref('')
 const bereichFilter = ref<string[]>([])
 const schwierigkeitFilter = ref<string[]>([])
 
@@ -67,23 +68,34 @@ const filterAktiv = computed(
     schwierigkeitFilter.value.length > 0,
 )
 
-const etwasGewaehlt = computed(() => filterAktiv.value || zielgruppeFilter.value.length > 0)
-
 function zuruecksetzen() {
   suche.value = ''
-  zielgruppeFilter.value = []
   bereichFilter.value = []
   schwierigkeitFilter.value = []
 }
 
+/** Zurück zur Auswahl — dabei fallen auch die Filter darunter weg. */
+function zielgruppeVerlassen() {
+  zielgruppe.value = ''
+  zuruecksetzen()
+}
+
+function waehleZielgruppe(name: string) {
+  zielgruppe.value = name
+  zuruecksetzen()
+}
+
 /** Der Ausschnitt, in dem alles Weitere stattfindet. */
 const imAusschnitt = computed(() =>
-  zielgruppeFilter.value.length
-    ? videos.videos.filter((video) =>
-        video.zielgruppenNamen.some((name) => zielgruppeFilter.value.includes(name)),
-      )
+  zielgruppe.value
+    ? videos.videos.filter((video) => video.zielgruppenNamen.includes(zielgruppe.value))
     : videos.videos,
 )
+
+/** Wie viele Übungen stecken in einer Zielgruppe — für die Karten. */
+function anzahlIn(name: string): number {
+  return videos.videos.filter((video) => video.zielgruppenNamen.includes(name)).length
+}
 
 const treffer = computed(() => {
   const begriff = suche.value.trim().toLowerCase()
@@ -228,9 +240,44 @@ const abschnitte = computed<Abschnitt[]>(() => {
       </div>
     </header>
 
-    <!-- Suche und Filter stehen über allem: sie sind der schnellste Weg zur
-         passenden Übung, sobald der Bestand über ein paar Dutzend wächst. -->
+<!--
+      Der Einstieg: Solange keine Zielgruppe gewählt ist, zeigt die Seite,
+      welche es gibt. Das beantwortet „für wen ist das hier" vor „welche Übung
+      suche ich" — bei einem großen Bestand die nützlichere Reihenfolge.
+    -->
+    <section v-if="!zielgruppe && videos.zielgruppen.length && videos.loaded" class="zielgruppen">
+      <header class="abschnitt-kopf">
+        <h2 class="t-h3">Für wen suchen Sie?</h2>
+        <span class="zaehler t-meta">Wählen Sie eine Zielgruppe — oder scrollen Sie weiter</span>
+      </header>
+
+      <div class="zg-karten">
+        <button
+          v-for="eintrag in videos.zielgruppen"
+          :key="eintrag.name"
+          type="button"
+          class="zg-karte"
+          @click="waehleZielgruppe(eintrag.name)"
+        >
+          <span class="zg-name t-h3">{{ eintrag.name }}</span>
+          <span v-if="eintrag.beschreibung" class="zg-text">{{ eintrag.beschreibung }}</span>
+          <span class="zg-zahl t-meta">
+            {{ anzahlIn(eintrag.name) }}
+            {{ anzahlIn(eintrag.name) === 1 ? 'Übung' : 'Übungen' }}
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Suche und Filter: erst innerhalb einer Zielgruppe die volle Leiste. -->
     <div class="filter">
+      <div v-if="zielgruppe" class="ausschnitt">
+        <span class="ausschnitt-name">{{ zielgruppe }}</span>
+        <button type="button" class="ausschnitt-weg" @click="zielgruppeVerlassen">
+          ✕ Alle Zielgruppen
+        </button>
+      </div>
+
       <label class="suchfeld">
         <span class="visually-hidden">Übungen durchsuchen</span>
         <span class="lupe" aria-hidden="true">⌕</span>
@@ -240,23 +287,6 @@ const abschnitte = computed<Abschnitt[]>(() => {
           placeholder="Übung, Beschreibung oder Hilfsmittel suchen …"
         />
       </label>
-
-      <!--
-        Zielgruppen zuerst und abgesetzt: sie grenzen den Bestand ein, die
-        übrigen Knöpfe suchen darin.
-      -->
-      <div v-if="videos.zielgruppen.length" class="chips">
-        <button
-          v-for="zielgruppe in videos.zielgruppen"
-          :key="zielgruppe"
-          type="button"
-          class="chip zielgruppe"
-          :class="{ an: zielgruppeFilter.includes(zielgruppe) }"
-          @click="umschalten(zielgruppeFilter, zielgruppe)"
-        >
-          {{ zielgruppe }}
-        </button>
-      </div>
 
       <div class="chips">
         <button
@@ -283,7 +313,7 @@ const abschnitte = computed<Abschnitt[]>(() => {
           {{ grad }}
         </button>
 
-        <GButton v-if="etwasGewaehlt" variant="text" @click="zuruecksetzen">
+        <GButton v-if="filterAktiv" variant="text" @click="zuruecksetzen">
           Zurücksetzen
         </GButton>
       </div>
@@ -499,14 +529,79 @@ const abschnitte = computed<Abschnitt[]>(() => {
   color: var(--c-white);
 }
 
-/* Oberste Ebene — etwas kräftiger als die Merkmalsfilter darunter. */
-.chip.zielgruppe {
+/* ── Zielgruppen-Einstieg ──────────────────────────────────────────── */
+.zielgruppen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.zg-karten {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.zg-karte {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 22px;
+  border: 1px solid var(--c-hairline);
+  border-radius: var(--r-card);
+  background: var(--c-white);
+  font-family: inherit;
+  color: var(--c-text);
+  cursor: pointer;
+}
+
+.zg-karte:hover {
+  border-color: var(--c-action);
+  background: var(--c-tint);
+}
+
+.zg-text {
+  font-size: var(--fs-secondary);
+  line-height: 1.5;
+  color: var(--c-text-muted);
+}
+
+.zg-zahl {
+  margin-top: auto;
+  padding-top: 6px;
+  color: var(--c-action);
+}
+
+/* Der gewählte Ausschnitt, über der Filterleiste. */
+.ausschnitt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ausschnitt-name {
+  padding: 7px 18px;
+  border-radius: var(--r-pill);
+  background: var(--c-action);
+  color: var(--c-white);
+  font-size: var(--fs-secondary);
   font-weight: 500;
 }
 
-.chip.zielgruppe.an {
-  background: var(--c-action);
-  border-color: var(--c-action);
+.ausschnitt-weg {
+  border: 0;
+  background: transparent;
+  color: var(--c-text-muted);
+  font-family: inherit;
+  font-size: var(--fs-secondary);
+  cursor: pointer;
+}
+
+.ausschnitt-weg:hover {
+  color: var(--c-action);
 }
 
 .trenner {

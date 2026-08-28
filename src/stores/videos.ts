@@ -11,8 +11,8 @@ export const useVideosStore = defineStore('videos', () => {
   const videos = ref<Video[]>([])
   /** Die gepflegten Trainingsbereiche — Reihenfolge wie im Backend. */
   const bereiche = ref<string[]>([])
-  /** Aktive Zielgruppen — die oberste Gliederungsebene im Portal. */
-  const zielgruppen = ref<string[]>([])
+/** Aktive Zielgruppen — die oberste Gliederungsebene im Portal. */
+  const zielgruppen = ref<{ name: string; beschreibung: string }[]>([])
   const loaded = ref(false)
   const error = ref<string | null>(null)
 
@@ -21,7 +21,7 @@ export const useVideosStore = defineStore('videos', () => {
       const result = await api.get<{
         videos: Video[]
         bereiche: string[]
-        zielgruppen: string[]
+        zielgruppen: { name: string; beschreibung: string }[]
       }>('/portal/videos')
       videos.value = result.videos
       bereiche.value = result.bereiche ?? []
