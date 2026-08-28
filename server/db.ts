@@ -884,6 +884,7 @@ export async function deleteVideo(id: number): Promise<void> {
  */
 export async function paketInhalte(benutzerId: number | null): Promise<
   (Paket & {
+    zielgruppenNamen: string[]
     videos: {
       id: number
       titel: string
@@ -919,8 +920,31 @@ export async function paketInhalte(benutzerId: number | null): Promise<
       : [benutzerId, benutzerId, pakete.map((paket) => paket.id)],
   )
 
+  /*
+   * Die Zielgruppen je Paket. Das Portal gliedert danach; ohne diese Angabe
+   * müsste die Oberfläche die Zuordnung aus den Videos zurückrechnen — was
+   * bei einem Paket ohne sichtbare Videos gar nicht ginge.
+   */
+  const zuZielgruppen: Record<string, unknown>[] = await getPool().query(
+    `SELECT zp.paket_id, z.name
+       FROM zielgruppe_pakete zp
+       JOIN zielgruppen z ON z.id = zp.zielgruppe_id AND z.aktiv = 1
+      WHERE zp.paket_id IN (?)
+      ORDER BY z.sortierung, z.name`,
+    [pakete.map((paket) => paket.id)],
+  )
+
+  const zielgruppenJePaket = new Map<number, string[]>()
+  for (const zeile of zuZielgruppen) {
+    const schluessel = Number(zeile.paket_id)
+    const liste = zielgruppenJePaket.get(schluessel) ?? []
+    liste.push(String(zeile.name))
+    zielgruppenJePaket.set(schluessel, liste)
+  }
+
   return pakete.map((paket) => ({
     ...paket,
+    zielgruppenNamen: zielgruppenJePaket.get(paket.id) ?? [],
     videos: zeilen
       .filter((zeile) => Number(zeile.paket_id) === paket.id)
       .map((zeile) => ({

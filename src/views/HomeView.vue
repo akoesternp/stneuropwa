@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import PaketKarte from '@/components/PaketKarte.vue'
 import VideoTile from '@/components/VideoTile.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
+import { usePaketeStore } from '@/stores/pakete'
 import { useVideosStore } from '@/stores/videos'
 import { dauerInSekunden } from '@/utils/format'
 import { SCHWIERIGKEITEN } from '@shared/types'
@@ -23,6 +25,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
+const pakete = usePaketeStore()
 const fortschritt = useFortschrittStore()
 
 /** So viele Kacheln je Abschnitt; der Rest steht auf der Paketseite. */
@@ -47,6 +50,8 @@ const schwierigkeitFilter = ref<string[]>([])
 
 onMounted(() => {
   void videos.ensureLoaded()
+  // Für die Paketkarten in einer Zielgruppe — auch Gäste sehen sie.
+  void pakete.ensureLoaded()
   if (auth.isAuthenticated) void fortschritt.reload()
 })
 
@@ -58,6 +63,7 @@ watch(
   () => auth.isAuthenticated,
   (angemeldet) => {
     void videos.reload()
+    void pakete.reload()
     if (angemeldet) void fortschritt.reload()
   },
 )
@@ -115,6 +121,20 @@ const imAusschnitt = computed(() =>
   zielgruppe.value
     ? videos.videos.filter((video) => video.zielgruppenNamen.includes(zielgruppe.value))
     : videos.videos,
+)
+
+/**
+ * Die Pakete der gewählten Zielgruppe — dargestellt wie in der Paketübersicht,
+ * samt „freigeschaltet" oder nicht.
+ *
+ * Sie kommen aus der Paketübersicht und nicht aus den sichtbaren Videos: ein
+ * Paket, von dem der Nutzer noch nichts sehen darf, hätte dort gar keine
+ * Spur — und genau dieses Paket ist das, auf das man ihn hinweisen will.
+ */
+const paketeDerZielgruppe = computed(() =>
+  zielgruppe.value
+    ? pakete.pakete.filter((paket) => paket.zielgruppenNamen.includes(zielgruppe.value))
+    : [],
 )
 
 /** Wie viele Übungen stecken in einer Zielgruppe — für die Karten. */
@@ -381,6 +401,25 @@ const abschnitte = computed<Abschnitt[]>(() => {
       </template>
 
       <template v-else>
+        <!--
+          In einer Zielgruppe zuerst deren Pakete — auch die noch nicht
+          freigeschalteten. Sonst sähe man nur die eigenen Übungen und nicht,
+          was es hier überhaupt gibt.
+        -->
+        <section v-if="paketeDerZielgruppe.length" class="abschnitt">
+          <header class="abschnitt-kopf">
+            <h2 class="t-h3">Pakete für {{ zielgruppe }}</h2>
+            <span class="zaehler t-meta">
+              {{ paketeDerZielgruppe.length }}
+              {{ paketeDerZielgruppe.length === 1 ? 'Paket' : 'Pakete' }}
+            </span>
+          </header>
+
+          <div class="paket-grid">
+            <PaketKarte v-for="paket in paketeDerZielgruppe" :key="paket.id" :paket="paket" />
+          </div>
+        </section>
+
         <section v-if="weiterschauen.length" class="abschnitt">
           <header class="abschnitt-kopf">
             <h2 class="t-h3">Weiterschauen</h2>
@@ -689,6 +728,13 @@ const abschnitte = computed<Abschnitt[]>(() => {
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 22px;
+}
+
+/* Etwas schmaler als die Videokacheln — eine Paketkarte trägt weniger. */
+.paket-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 22px;
 }
 

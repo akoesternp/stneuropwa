@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import PaketKarte from '@/components/PaketKarte.vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePaketeStore } from '@/stores/pakete'
 
@@ -20,10 +20,6 @@ watch(
   () => auth.isAuthenticated,
   () => void pakete.reload(),
 )
-
-function freigeschaltet(paketName: string): boolean {
-  return auth.user?.pakete.includes(paketName) ?? false
-}
 </script>
 
 <template>
@@ -44,35 +40,7 @@ function freigeschaltet(paketName: string): boolean {
     <p v-else-if="!pakete.pakete.length" class="state">Es sind noch keine Pakete angelegt.</p>
 
     <div v-else class="grid">
-      <RouterLink
-        v-for="paket in pakete.pakete"
-        :key="paket.id"
-        class="karte"
-        :to="{ name: 'paket', params: { id: paket.id } }"
-      >
-        <div class="kopf">
-          <h2 class="t-h3">{{ paket.name }}</h2>
-          <span v-if="freigeschaltet(paket.name)" class="marke frei">Freigeschaltet</span>
-        </div>
-
-        <p v-if="paket.beschreibung" class="beschreibung">{{ paket.beschreibung }}</p>
-
-        <ul class="vorschau">
-          <li v-for="video in paket.videos.slice(0, 3)" :key="video.id">
-            <span class="t-truncate">{{ video.titel }}</span>
-            <span class="dauer t-meta">{{ video.dauer || '–' }}</span>
-          </li>
-        </ul>
-
-        <p class="fuss t-meta">
-          {{ paket.videos.length }} Video{{ paket.videos.length === 1 ? '' : 's' }}<template
-            v-if="paket.gesamtdauer"
-          >
-            · {{ paket.gesamtdauer }} Laufzeit</template
-          >
-          <template v-if="paket.videos.length > 3"> · vollständige Liste ansehen</template>
-        </p>
-      </RouterLink>
+      <PaketKarte v-for="paket in pakete.pakete" :key="paket.id" :paket="paket" />
     </div>
   </section>
 </template>
@@ -107,80 +75,10 @@ function freigeschaltet(paketName: string): boolean {
   color: var(--c-red);
 }
 
+/* Die Kartenstile stehen in PaketKarte.vue — hier bleibt nur das Raster. */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 22px;
-}
-
-.karte {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: var(--card-pad);
-  border: 1px solid var(--c-hairline);
-  border-radius: var(--r-card);
-  background: var(--c-white);
-  color: var(--c-text);
-}
-
-.karte:hover {
-  border-color: var(--c-action);
-  color: var(--c-text);
-  text-decoration: none;
-}
-
-.kopf {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.marke {
-  flex: none;
-  padding: 3px 12px;
-  border-radius: var(--r-pill);
-  font-family: var(--font-num);
-  font-size: var(--fs-meta);
-}
-
-.marke.frei {
-  background: var(--c-tint);
-  color: var(--c-action);
-}
-
-.beschreibung {
-  font-size: var(--fs-secondary);
-  line-height: 1.6;
-  color: var(--c-text-muted);
-}
-
-.vorschau {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-top: 1px solid var(--c-hairline-2);
-  padding-top: 14px;
-}
-
-.vorschau li {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: var(--fs-secondary);
-  min-width: 0;
-}
-
-.dauer {
-  flex: none;
-}
-
-.fuss {
-  margin-top: auto;
 }
 </style>

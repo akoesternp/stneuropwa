@@ -125,6 +125,8 @@ export interface PaketEintrag extends Paket {
  * mit `freigeschaltet`.
  */
 export interface PaketInhalt extends Paket {
+  /** Zielgruppen, in denen dieses Paket steckt — für die Gliederung im Portal. */
+  zielgruppenNamen: string[]
   videos: {
     id: number
     titel: string
