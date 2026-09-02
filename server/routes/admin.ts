@@ -7,6 +7,7 @@ import { Router } from 'express'
 import { SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
+  bucheBestellung,
   deleteAdmin,
   deleteBereich,
   deleteZielgruppe,
@@ -20,6 +21,7 @@ import {
   listPaketeMitVideos,
   listZielgruppenMitInhalt,
   listBenutzer,
+  listBestellungen,
   listPakete,
   listVideos,
   saveBenutzer,
@@ -27,6 +29,7 @@ import {
   savePaket,
   saveZielgruppe,
   saveVideo,
+  storniereBestellung,
   upsertAdmin,
 } from '../db.js'
 import { hashPassword, verifyPassword } from '../passwords.js'
@@ -673,6 +676,63 @@ adminRouter.delete('/admins/:benutzer', async (req, res) => {
 
   await deleteAdmin(key)
   destroySessionsFor('admin', key)
+  res.json({ ok: true })
+})
+
+// ── Bestellungen ───────────────────────────────────────────────────────────
+
+/**
+ * Die Bestellungen über Credits — offene zuerst, denn nur die verlangen etwas.
+ *
+ * Für PayPal ist das reine Auskunft: dort bucht die Zahlungsbestätigung. Bei
+ * Vorkasse ist diese Liste der Arbeitsplatz — Kontoauszug daneben, Referenz
+ * vergleichen, bestätigen.
+ */
+adminRouter.get('/bestellungen', async (_req, res) => {
+  res.json(await listBestellungen())
+})
+
+/**
+ * Zahlungseingang bestätigen — die Vorkasse-Buchung von Hand.
+ *
+ * Läuft durch dieselbe Buchung wie PayPal, samt derselben Sperre gegen
+ * Doppelbuchungen: ein zweiter Klick auf denselben Knopf schreibt nichts
+ * nochmal gut.
+ */
+adminRouter.post('/bestellungen/:id/bestaetigen', async (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+    return
+  }
+
+  const ergebnis = await bucheBestellung(id)
+
+  switch (ergebnis.status) {
+    case 'gebucht':
+      console.log(
+        `[Zahlung] Vorkasse ${ergebnis.bestellung.referenz} bestätigt: ` +
+          `+${ergebnis.bestellung.credits} Credits, neuer Stand ${ergebnis.credits}`,
+      )
+      res.json({ ok: true, credits: ergebnis.credits })
+      return
+    case 'schon-gebucht':
+      res.status(409).json({ error: 'Diese Bestellung ist bereits gebucht.' })
+      return
+    case 'storniert':
+      res.status(409).json({ error: 'Diese Bestellung wurde storniert.' })
+      return
+    default:
+      res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+  }
+})
+
+adminRouter.post('/bestellungen/:id/stornieren', async (req, res) => {
+  const erledigt = await storniereBestellung(Number(req.params.id))
+  if (!erledigt) {
+    res.status(409).json({ error: 'Nur offene Bestellungen lassen sich stornieren.' })
+    return
+  }
   res.json({ ok: true })
 })
 

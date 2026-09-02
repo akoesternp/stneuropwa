@@ -1,14 +1,19 @@
+import { randomBytes } from 'node:crypto'
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
 import { CREDITS_JE_VIDEO, paketPreis, SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
 import type {
   Bereich,
   BenutzerEintrag,
+  Bestellung,
+  BestellStatus,
+  BestellungEintrag,
   Fortschritt,
   KatalogVideo,
   Paket,
   PaketEintrag,
   Video,
+  Zahlweg,
   Zielgruppe,
   ZielgruppeEintrag,
 } from '../shared/types.js'
@@ -296,6 +301,39 @@ async function createSchema(): Promise<void> {
      * sind Beiwerk, und ein gelöschtes Video soll nicht am Fortschritt
      * scheitern — verwaiste Zeilen räumt deleteVideo mit weg.
      */
+    /*
+     * Bestellungen über Credits — für beide Zahlwege dieselbe Tabelle.
+     *
+     * Sie ist nicht nur Beleg, sondern die Sperre gegen Doppelbuchungen:
+     * `status` wird beim Buchen mit einem bedingten UPDATE von 'offen' auf
+     * 'bezahlt' gedreht, und nur wer diesen Übergang gewinnt, schreibt gut.
+     * Bei PayPal kommt dieselbe Bestätigung durchaus mehrfach an.
+     *
+     * `anbieter_referenz` ist absichtlich NULL statt '' vorbelegt: ein
+     * UNIQUE-Index lässt beliebig viele NULL zu, aber nur ein einziges leeres
+     * Feld — mit '' ließe sich keine zweite Vorkasse-Bestellung anlegen.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS bestellungen (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        referenz VARCHAR(24) NOT NULL,
+        benutzer_id INT UNSIGNED NOT NULL,
+        paket_id VARCHAR(40) NOT NULL,
+        credits INT NOT NULL,
+        betrag_cent INT NOT NULL,
+        zahlweg VARCHAR(20) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'offen',
+        anbieter_referenz VARCHAR(64) NULL DEFAULT NULL,
+        angelegt_am BIGINT NOT NULL DEFAULT 0,
+        bezahlt_am BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_referenz (referenz),
+        UNIQUE KEY uq_anbieter (anbieter_referenz),
+        KEY ix_benutzer (benutzer_id, angelegt_am),
+        KEY ix_status (status, angelegt_am)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
     await conn.query(
       `CREATE TABLE IF NOT EXISTS fortschritt (
         benutzer_id INT UNSIGNED NOT NULL,
@@ -1123,6 +1161,234 @@ export async function gutschreibeCredits(
   } finally {
     conn.release()
   }
+}
+
+/* ── Bestellungen ──────────────────────────────────────────────────────── */
+
+function toBestellung(row: Record<string, unknown>): Bestellung {
+  return {
+    id: Number(row.id),
+    referenz: String(row.referenz),
+    paketId: String(row.paket_id),
+    credits: Number(row.credits) || 0,
+    betragCent: Number(row.betrag_cent) || 0,
+    zahlweg: String(row.zahlweg) as Zahlweg,
+    status: String(row.status) as BestellStatus,
+    angelegtAm: Number(row.angelegt_am) || 0,
+    bezahltAm: row.bezahlt_am === null ? null : Number(row.bezahlt_am),
+  }
+}
+
+/**
+ * Der Verwendungszweck.
+ *
+ * Ohne 0/O/1/I/L — die Referenz wird von Hand aus einem Kontoauszug
+ * abgetippt, und genau dort passieren Verwechslungen. Kurz genug, dass sie
+ * niemand kürzt, lang genug, dass sie sich nicht erraten lässt.
+ */
+const REFERENZ_ZEICHEN = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+function neueReferenz(): string {
+  const bytes = randomBytes(8)
+  let text = ''
+  for (let stelle = 0; stelle < 8; stelle++) {
+    text += REFERENZ_ZEICHEN[bytes[stelle]! % REFERENZ_ZEICHEN.length]
+  }
+  return `STN-${text.slice(0, 4)}-${text.slice(4)}`
+}
+
+/**
+ * Legt eine offene Bestellung an. Gebucht wird hier nichts.
+ *
+ * Menge und Betrag werden mitgeschrieben statt später nachgeschlagen: eine
+ * Preisänderung darf nicht rückwirkend gelten für jemanden, der schon
+ * überwiesen hat.
+ */
+export async function erzeugeBestellung(
+  benutzerId: number,
+  paket: { id: string; credits: number; preisCent: number },
+  zahlweg: Zahlweg,
+): Promise<Bestellung> {
+  await ensureReady()
+
+  // Ein Zusammenstoß ist bei 31^8 Möglichkeiten unwahrscheinlich, aber der
+  // UNIQUE-Index entscheidet das, nicht die Wahrscheinlichkeit.
+  for (let versuch = 0; versuch < 5; versuch++) {
+    const referenz = neueReferenz()
+    try {
+      const ergebnis = await getPool().query(
+        `INSERT INTO bestellungen
+           (referenz, benutzer_id, paket_id, credits, betrag_cent, zahlweg, status, angelegt_am)
+         VALUES (?, ?, ?, ?, ?, ?, 'offen', ?)`,
+        [referenz, benutzerId, paket.id, paket.credits, paket.preisCent, zahlweg, Date.now()],
+      )
+      const rows: Record<string, unknown>[] = await getPool().query(
+        'SELECT * FROM bestellungen WHERE id = ?',
+        [Number(ergebnis.insertId)],
+      )
+      return toBestellung(rows[0]!)
+    } catch (cause) {
+      if (!istDuplikatFehler(cause) || versuch === 4) throw cause
+    }
+  }
+
+  throw new Error('Keine freie Bestellreferenz gefunden.')
+}
+
+/** Duplikat auf einem UNIQUE-Index — MariaDB meldet 1062. */
+function istDuplikatFehler(cause: unknown): boolean {
+  return Boolean(cause) && (cause as { errno?: number }).errno === 1062
+}
+
+/** Hält die PayPal-Vorgangsnummer fest, sobald sie vorliegt. */
+export async function merkeAnbieterReferenz(
+  bestellungId: number,
+  referenz: string,
+): Promise<void> {
+  await ensureReady()
+  await getPool().query('UPDATE bestellungen SET anbieter_referenz = ? WHERE id = ?', [
+    referenz,
+    bestellungId,
+  ])
+}
+
+export async function findeBestellung(
+  bestellungId: number,
+  benutzerId?: number,
+): Promise<Bestellung | null> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    benutzerId === undefined
+      ? 'SELECT * FROM bestellungen WHERE id = ?'
+      : 'SELECT * FROM bestellungen WHERE id = ? AND benutzer_id = ?',
+    benutzerId === undefined ? [bestellungId] : [bestellungId, benutzerId],
+  )
+  return rows[0] ? toBestellung(rows[0]) : null
+}
+
+/**
+ * Die PayPal-Vorgangsnummer einer Bestellung.
+ *
+ * Eigene Abfrage statt eines Felds in `Bestellung`: die Nummer ist eine
+ * interne Verknüpfung und hat in dem, was die Oberfläche bekommt, nichts zu
+ * suchen.
+ */
+export async function anbieterReferenzVon(bestellungId: number): Promise<string> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    'SELECT anbieter_referenz FROM bestellungen WHERE id = ?',
+    [bestellungId],
+  )
+  return String(rows[0]?.anbieter_referenz ?? '')
+}
+
+export async function listBestellungenFuer(benutzerId: number): Promise<Bestellung[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    'SELECT * FROM bestellungen WHERE benutzer_id = ? ORDER BY angelegt_am DESC LIMIT 50',
+    [benutzerId],
+  )
+  return rows.map(toBestellung)
+}
+
+/** Die Verwaltungsliste — offene zuerst, denn die verlangen eine Handlung. */
+export async function listBestellungen(): Promise<BestellungEintrag[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT b.*, u.email, u.name
+       FROM bestellungen b
+       LEFT JOIN benutzer u ON u.id = b.benutzer_id
+      ORDER BY b.status = 'offen' DESC, b.angelegt_am DESC
+      LIMIT 300`,
+  )
+  return rows.map((row) => ({
+    ...toBestellung(row),
+    benutzerId: Number(row.benutzer_id),
+    email: String(row.email ?? '—'),
+    name: String(row.name ?? ''),
+    anbieterReferenz: String(row.anbieter_referenz ?? ''),
+  }))
+}
+
+export type BuchungsErgebnis =
+  | { status: 'gebucht'; bestellung: Bestellung; credits: number }
+  | { status: 'schon-gebucht'; bestellung: Bestellung }
+  | { status: 'storniert'; bestellung: Bestellung }
+  | { status: 'nicht-gefunden' }
+
+/**
+ * Bucht eine bezahlte Bestellung — GENAU einmal.
+ *
+ * Das Kernstück der ganzen Zahlungsanbindung. PayPal stellt Bestätigungen
+ * mindestens einmal zu, oft mehrfach, und wiederholt sie bei Zeitüberschreitung;
+ * bei Vorkasse kann ein Doppelklick im Backend dasselbe auslösen. Deshalb
+ * entscheidet nicht ein vorher gelesener Zustand, sondern das bedingte UPDATE
+ * selbst: nur wer den Übergang 'offen' → 'bezahlt' gewinnt, schreibt gut. Alle
+ * weiteren Aufrufe sehen affectedRows = 0 und tun nichts.
+ *
+ * Gutschrift und Statuswechsel liegen in derselben Transaktion — sonst gäbe es
+ * einen Moment, in dem das eine ohne das andere gilt.
+ */
+export async function bucheBestellung(bestellungId: number): Promise<BuchungsErgebnis> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const vorher: Record<string, unknown>[] = await conn.query(
+      'SELECT * FROM bestellungen WHERE id = ? FOR UPDATE',
+      [bestellungId],
+    )
+    if (!vorher[0]) {
+      await conn.rollback()
+      return { status: 'nicht-gefunden' }
+    }
+    const bestellung = toBestellung(vorher[0])
+
+    const gedreht = await conn.query(
+      `UPDATE bestellungen SET status = 'bezahlt', bezahlt_am = ?
+        WHERE id = ? AND status = 'offen'`,
+      [Date.now(), bestellungId],
+    )
+
+    if (Number(gedreht.affectedRows) !== 1) {
+      await conn.rollback()
+      return bestellung.status === 'storniert'
+        ? { status: 'storniert', bestellung }
+        : { status: 'schon-gebucht', bestellung }
+    }
+
+    await conn.query('UPDATE benutzer SET credits = credits + ? WHERE id = ?', [
+      bestellung.credits,
+      Number(vorher[0].benutzer_id),
+    ])
+    const konten: Record<string, unknown>[] = await conn.query(
+      'SELECT credits FROM benutzer WHERE id = ?',
+      [Number(vorher[0].benutzer_id)],
+    )
+
+    await conn.commit()
+    return {
+      status: 'gebucht',
+      bestellung: { ...bestellung, status: 'bezahlt', bezahltAm: Date.now() },
+      credits: Number(konten[0]?.credits) || 0,
+    }
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/** Bricht eine offene Bestellung ab. Bezahlte bleiben unangetastet. */
+export async function storniereBestellung(bestellungId: number): Promise<boolean> {
+  await ensureReady()
+  const ergebnis = await getPool().query(
+    `UPDATE bestellungen SET status = 'storniert' WHERE id = ? AND status = 'offen'`,
+    [bestellungId],
+  )
+  return Number(ergebnis.affectedRows) === 1
 }
 
 /**

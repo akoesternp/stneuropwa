@@ -3,19 +3,34 @@ import { basename, join } from 'node:path'
 import { Router } from 'express'
 import type { Response } from 'express'
 import { creditPaket } from '../../shared/types.js'
+import type { Zahlweg } from '../../shared/types.js'
 import {
+  bucheBestellung,
   darfVideoSehen,
-  gutschreibeCredits,
+  erzeugeBestellung,
+  anbieterReferenzVon,
+  findeBestellung,
   kaufePaket,
   kaufeVideo,
   katalogVideos,
   listBereiche,
+  listBestellungenFuer,
   listZielgruppen,
   leseFortschritt,
+  merkeAnbieterReferenz,
   paketInhalte,
   speichereFortschritt,
+  storniereBestellung,
 } from '../db.js'
 import type { KaufErgebnis } from '../db.js'
+import {
+  erfassePaypalZahlung,
+  erzeugePaypalVorgang,
+  paypalAktiv,
+  paypalClientId,
+  paypalUmgebung,
+} from '../paypal.js'
+import { VORKASSE } from '../vorkasse.js'
 import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
 import { currentSession, requireUser } from '../sessions.js'
 import { formatiereDauer, parseDauer } from '../videodauer.js'
@@ -87,50 +102,177 @@ portalRouter.get('/pakete', async (req, res) => {
 })
 
 /**
- * Credits kaufen — der Platzhalter, bis ein Zahlungsanbieter angebunden ist.
+ * Was für Zahlwege offenstehen — und womit die Oberfläche sie darstellen kann.
  *
- * Ohne Bezahlung wäre dieser Endpunkt eine Gelddruckmaschine, deshalb ist er
- * standardmäßig ZU. Nur mit CREDITS_TESTKAUF=1 schreibt er wirklich gut —
- * gedacht für die Entwicklung, damit sich der Freischalt-Weg durchspielen
- * lässt. Auf einem erreichbaren Server bleibt die Variable ungesetzt, und der
- * Endpunkt antwortet mit 501.
- *
- * Der Client schickt nur die Kennung der Staffelstufe. Menge und Preis stehen
- * in CREDIT_PAKETE — käme beides aus der Anfrage, könnte man sich sein
- * Guthaben selbst diktieren.
+ * Die PayPal-Kennung (client id) ist öffentlich, sie steckt ohnehin im Skript
+ * im Browser. Das Geheimnis bleibt hier.
  */
-const TESTKAUF_ERLAUBT = process.env.CREDITS_TESTKAUF === '1'
-
-portalRouter.get('/credits/moeglich', requireUser, (_req, res) => {
-  res.json({ moeglich: TESTKAUF_ERLAUBT })
+portalRouter.get('/zahlung/konfig', (_req, res) => {
+  res.json({
+    paypal: {
+      aktiv: paypalAktiv(),
+      clientId: paypalClientId(),
+      umgebung: paypalUmgebung(),
+    },
+    vorkasse: VORKASSE,
+  })
 })
 
-portalRouter.post('/credits/kaufen', requireUser, async (req, res) => {
+/**
+ * Legt eine Bestellung an — der gemeinsame erste Schritt beider Zahlwege.
+ *
+ * Der Client schickt nur die Kennung der Staffelstufe und den Zahlweg. Menge
+ * und Betrag kommen aus CREDIT_PAKETE und werden in die Bestellung
+ * geschrieben; käme der Preis aus der Anfrage, könnte man ihn sich aussuchen.
+ *
+ * Gebucht wird hier nichts. Bei Vorkasse wartet die Bestellung auf die
+ * Bestätigung im Backend, bei PayPal auf die Erfassung der Zahlung.
+ */
+portalRouter.post('/bestellungen', requireUser, async (req, res) => {
   const stufe = creditPaket(String(req.body?.paket ?? ''))
   if (!stufe) {
     res.status(400).json({ error: 'Unbekanntes Credit-Paket.' })
     return
   }
 
-  if (!TESTKAUF_ERLAUBT) {
-    res.status(501).json({
-      error:
-        'Der Bezahlvorgang ist noch nicht angebunden. Melden Sie sich bei uns, ' +
-        'um Credits zu erwerben.',
+  const zahlweg = String(req.body?.zahlweg ?? '') as Zahlweg
+  if (zahlweg !== 'vorkasse' && zahlweg !== 'paypal') {
+    res.status(400).json({ error: 'Unbekannter Zahlweg.' })
+    return
+  }
+  if (zahlweg === 'paypal' && !paypalAktiv()) {
+    res.status(503).json({ error: 'PayPal steht derzeit nicht zur Verfügung.' })
+    return
+  }
+  if (zahlweg === 'vorkasse' && !VORKASSE.aktiv) {
+    res.status(503).json({ error: 'Vorkasse steht derzeit nicht zur Verfügung.' })
+    return
+  }
+
+  /*
+   * Bei digitalen Inhalten muss der Käufer der sofortigen Ausführung
+   * ausdrücklich zustimmen — sonst bliebe das Widerrufsrecht bestehen,
+   * obwohl die Credits schon nutzbar sind.
+   */
+  if (req.body?.sofortAusfuehren !== true) {
+    res.status(400).json({
+      error: 'Bitte bestätigen Sie die sofortige Freischaltung.',
     })
     return
   }
 
-  const credits = await gutschreibeCredits(Number(req.session!.subject), stufe.credits)
-  if (credits === null) {
-    res.status(404).json({ error: 'Nicht gefunden.' })
+  const bestellung = await erzeugeBestellung(Number(req.session!.subject), stufe, zahlweg)
+
+  if (zahlweg === 'vorkasse') {
+    res.json({ bestellung })
+    return
+  }
+
+  try {
+    const vorgangId = await erzeugePaypalVorgang(bestellung)
+    await merkeAnbieterReferenz(bestellung.id, vorgangId)
+    res.json({ bestellung, paypalVorgang: vorgangId })
+  } catch (cause) {
+    // Die Bestellung soll nicht als Leiche stehenbleiben, wenn PayPal den
+    // Vorgang gar nicht erst angelegt hat.
+    await storniereBestellung(bestellung.id)
+    console.error('[Zahlung] PayPal-Vorgang fehlgeschlagen:', cause)
+    res.status(502).json({ error: 'PayPal antwortet gerade nicht. Bitte später erneut versuchen.' })
+  }
+})
+
+/**
+ * Der Abschluss bei PayPal: Geld einziehen und gutschreiben.
+ *
+ * Der Browser meldet hier nur, DASS der Käufer zugestimmt hat. Ob wirklich
+ * gezahlt wurde, erfährt der Server allein aus seinem eigenen Aufruf bei
+ * PayPal — und der zurückgemeldete Betrag wird gegen die Bestellung geprüft,
+ * bevor irgendetwas gebucht wird.
+ */
+portalRouter.post('/bestellungen/:id/paypal', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const bestellung = await findeBestellung(Number(req.params.id), benutzerId)
+
+  if (!bestellung || bestellung.zahlweg !== 'paypal') {
+    res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+    return
+  }
+  if (bestellung.status === 'storniert') {
+    res.status(409).json({ error: 'Diese Bestellung wurde abgebrochen.' })
+    return
+  }
+
+  /*
+   * Die Vorgangsnummer kommt aus UNSERER Bestellung, nicht aus der Anfrage.
+   * Der Browser meldet zwar eine mit, aber würde man ihr folgen, ließe sich
+   * eine fremde Zahlung auf das eigene Konto buchen.
+   */
+  const vorgangId = await anbieterReferenzVon(bestellung.id)
+  if (!vorgangId) {
+    res.status(409).json({ error: 'Zu dieser Bestellung gibt es keinen PayPal-Vorgang.' })
+    return
+  }
+
+  const ergebnis = await erfassePaypalZahlung(vorgangId)
+
+  if (ergebnis.status === 'offen') {
+    res.status(402).json({ error: 'Die Zahlung ist noch nicht abgeschlossen.' })
+    return
+  }
+  if (ergebnis.status === 'fehlgeschlagen') {
+    console.error(`[Zahlung] Erfassung fehlgeschlagen (Bestellung ${bestellung.id}): ${ergebnis.grund}`)
+    res.status(502).json({ error: 'Die Zahlung konnte nicht abgeschlossen werden.' })
+    return
+  }
+
+  /*
+   * Betragsprüfung: gezahlt werden muss, was bestellt wurde. Weicht es ab,
+   * wird NICHT gebucht — lieber ein Fall für die Hand als eine falsche
+   * Gutschrift.
+   */
+  if (ergebnis.betragCent !== bestellung.betragCent) {
+    console.error(
+      `[Zahlung] Betrag weicht ab (Bestellung ${bestellung.id}): ` +
+        `erwartet ${bestellung.betragCent}, erhalten ${ergebnis.betragCent}`,
+    )
+    res.status(409).json({
+      error: 'Der gezahlte Betrag stimmt nicht mit der Bestellung überein. Bitte melden Sie sich bei uns.',
+    })
+    return
+  }
+
+  const gebucht = await bucheBestellung(bestellung.id)
+
+  if (gebucht.status === 'nicht-gefunden' || gebucht.status === 'storniert') {
+    res.status(409).json({ error: 'Diese Bestellung lässt sich nicht mehr buchen.' })
+    return
+  }
+  if (gebucht.status === 'schon-gebucht') {
+    // Zweiter Aufruf derselben Zahlung — kein Fehler, nur nichts zu tun.
+    res.json({ ok: true, schonGebucht: true, credits: null })
     return
   }
 
   console.log(
-    `[Credits] Testkauf: Konto ${req.session!.subject} +${stufe.credits} (${stufe.id}), neuer Stand ${credits}`,
+    `[Zahlung] PayPal ${bestellung.referenz}: +${bestellung.credits} Credits ` +
+      `für Konto ${benutzerId}, neuer Stand ${gebucht.credits}`,
   )
-  res.json({ ok: true, gutgeschrieben: stufe.credits, credits })
+  res.json({ ok: true, gutgeschrieben: bestellung.credits, credits: gebucht.credits })
+})
+
+/** Die eigenen Bestellungen — Beleg und Stand der offenen Überweisungen. */
+portalRouter.get('/bestellungen', requireUser, async (req, res) => {
+  res.json({ bestellungen: await listBestellungenFuer(Number(req.session!.subject)) })
+})
+
+/** Eine offene Bestellung abbrechen — etwa nach Abbruch im PayPal-Fenster. */
+portalRouter.post('/bestellungen/:id/abbrechen', requireUser, async (req, res) => {
+  const bestellung = await findeBestellung(Number(req.params.id), Number(req.session!.subject))
+  if (!bestellung) {
+    res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+    return
+  }
+  res.json({ ok: await storniereBestellung(bestellung.id) })
 })
 
 /**

@@ -15,6 +15,7 @@ const nav = [
   { label: 'Pakete', name: 'admin-pakete' },
   { label: 'Videos', name: 'admin-videos' },
   { label: 'Bereiche', name: 'admin-bereiche' },
+  { label: 'Bestellungen', name: 'admin-bestellungen' },
   { label: 'Zugänge', name: 'admin-zugaenge' },
 ] as const
 

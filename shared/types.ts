@@ -115,6 +115,53 @@ export function rabattProzent(paket: CreditPaket): number {
   return Math.max(0, Math.round((1 - paket.preisCent / voll) * 100))
 }
 
+/* ── Bestellungen ──────────────────────────────────────────────────────── */
+
+/**
+ * Vorkasse wird von Hand geprüft, PayPal bestätigt sich selbst.
+ *
+ * Der Unterschied ist nur, WER die Zahlung bestätigt — die Buchung danach ist
+ * beidemal dieselbe, damit es nicht zwei Wege gibt, auf denen Guthaben
+ * entsteht.
+ */
+export type Zahlweg = 'vorkasse' | 'paypal'
+
+/**
+ * `offen` = bestellt, nicht bezahlt. `bezahlt` = Credits sind gutgeschrieben,
+ * genau einmal. `storniert` = abgebrochen oder verfallen, nie gebucht.
+ */
+export type BestellStatus = 'offen' | 'bezahlt' | 'storniert'
+
+/**
+ * Eine Bestellung über Credits.
+ *
+ * Menge und Betrag stehen fest darin, statt beim Buchen erneut aus
+ * CREDIT_PAKETE gelesen zu werden: sonst bekäme jemand, der vor einer
+ * Preisänderung überwiesen hat, hinterher die neue Menge.
+ */
+export interface Bestellung {
+  id: number
+  /** Verwendungszweck der Überweisung — die einzige Brücke zum Konto. */
+  referenz: string
+  /** Kennung der Staffelstufe zum Zeitpunkt der Bestellung. */
+  paketId: string
+  credits: number
+  betragCent: number
+  zahlweg: Zahlweg
+  status: BestellStatus
+  angelegtAm: number
+  bezahltAm: number | null
+}
+
+/** Eine Bestellung aus Sicht der Verwaltung — mit dem Besteller daneben. */
+export interface BestellungEintrag extends Bestellung {
+  benutzerId: number
+  email: string
+  name: string
+  /** Die PayPal-Vorgangsnummer, leer bei Vorkasse. */
+  anbieterReferenz: string
+}
+
 /**
  * Eine Zielgruppe bündelt Pakete UND einzelne Videos — die oberste Ebene der
  * Gliederung.

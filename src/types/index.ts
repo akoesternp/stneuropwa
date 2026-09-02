@@ -1,10 +1,14 @@
 export type {
   Benutzer,
   BenutzerEintrag,
+  Bestellung,
+  BestellungEintrag,
+  BestellStatus,
   KatalogVideo,
   Paket,
   PaketInhalt,
   Video,
+  Zahlweg,
 } from '@shared/types'
 
 /**
