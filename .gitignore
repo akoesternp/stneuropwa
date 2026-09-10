@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# Erzeugt vom Service Worker im Entwicklungsmodus (VitePWA devOptions).
+dev-dist/
 server-dist/
 server/videos/
 server/vorschaubilder/
