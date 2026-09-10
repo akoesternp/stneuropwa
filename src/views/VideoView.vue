@@ -68,20 +68,38 @@ const streamUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/
 const posterUrl = computed(() => `/api/portal/videos/${Number(route.params.id)}/thumb`)
 
 /**
- * Die nächste Übung desselben Pakets — beim Training arbeitet man eine Reihe
- * ab, und der Umweg über die Übersicht kostet jedes Mal zwei Klicks.
+ * Die Übungen jedes Pakets, in dem diese Übung liegt — in Reihenfolge.
  *
- * Maßgeblich ist das erste Paket des Videos; liegt es in mehreren, ist das
- * eine Festlegung, aber eine nachvollziehbare.
+ * Beim Training arbeitet man eine Reihe ab; wer mittendrin ist, will sehen,
+ * was davor und danach kommt, ohne über die Paketseite zurückzugehen. Alle
+ * Daten stehen schon im Katalog des Stores, es braucht keinen weiteren Abruf.
+ *
+ * `paketIds` und `paketNamen` kommen vom Server in derselben Reihenfolge —
+ * der Index verbindet beide, so wie es der „Gehört zu"-Block schon macht.
+ */
+const paketReihen = computed(() => {
+  const aktuell = video.value
+  if (!aktuell) return []
+
+  return aktuell.paketIds.map((paketId, stelle) => ({
+    id: paketId,
+    name: aktuell.paketNamen[stelle] ?? 'Paket',
+    videos: videos.videos
+      .filter((eintrag) => eintrag.paketIds.includes(paketId))
+      .sort((a, b) => a.sortierung - b.sortierung || a.id - b.id),
+  }))
+})
+
+/**
+ * Die nächste Übung — aus der ersten Reihe, in der diese Übung vorkommt.
+ *
+ * Liegt sie in mehreren Paketen, ist das eine Festlegung, aber eine
+ * nachvollziehbare: es ist dieselbe Reihe, die oben in der Liste steht.
  */
 const naechste = computed(() => {
   const aktuell = video.value
-  const paketId = aktuell?.paketIds[0]
-  if (!aktuell || paketId === undefined) return null
-
-  const reihe = videos.videos
-    .filter((eintrag) => eintrag.paketIds.includes(paketId))
-    .sort((a, b) => a.sortierung - b.sortierung || a.id - b.id)
+  const reihe = paketReihen.value[0]?.videos
+  if (!aktuell || !reihe) return null
 
   const stelle = reihe.findIndex((eintrag) => eintrag.id === aktuell.id)
   return stelle >= 0 ? (reihe[stelle + 1] ?? null) : null
@@ -458,6 +476,61 @@ onBeforeUnmount(() => {
           >
             Nächste Übung →
           </GButton>
+
+          <!--
+            Die Reihe, in der diese Übung steht. Wer mittendrin ist, sieht so
+            ohne Umweg, was davor und danach kommt — der aktuelle Eintrag ist
+            hervorgehoben und bewusst kein Link.
+          -->
+          <div v-for="reihe in paketReihen" :key="reihe.id" class="reihe">
+            <RouterLink :to="{ name: 'paket', params: { id: reihe.id } }" class="reihe-kopf">
+              <span class="t-eyebrow">{{ reihe.name }}</span>
+              <span class="reihe-zahl t-meta">{{ reihe.videos.length }}</span>
+            </RouterLink>
+
+            <ol class="reihe-liste">
+              <li
+                v-for="(eintrag, stelle) in reihe.videos"
+                :key="eintrag.id"
+                :class="{ hier: eintrag.id === video.id }"
+              >
+                <component
+                  :is="eintrag.id === video.id ? 'span' : RouterLink"
+                  :to="
+                    eintrag.id === video.id
+                      ? undefined
+                      : { name: 'video', params: { id: eintrag.id } }
+                  "
+                  class="reihe-eintrag"
+                >
+                  <span class="reihe-nr">{{ stelle + 1 }}</span>
+                  <span class="reihe-titel t-truncate">{{ eintrag.titel }}</span>
+
+                  <span v-if="fortschritt.fuer(eintrag.id)?.erledigt" class="reihe-haken">✓</span>
+                  <!-- Ein Schloss statt der Dauer: was zu ist, muss man nicht
+                       nach der Laufzeit beurteilen. -->
+                  <svg
+                    v-else-if="!eintrag.freigeschaltet"
+                    class="reihe-schloss"
+                    viewBox="0 0 24 24"
+                    width="12"
+                    height="12"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M7 10V7a5 5 0 0 1 10 0v3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                    />
+                    <rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor" />
+                  </svg>
+                  <span v-else class="reihe-dauer t-meta">{{ eintrag.dauer || '–' }}</span>
+                </component>
+              </li>
+            </ol>
+          </div>
         </aside>
       </div>
 
@@ -595,6 +668,96 @@ onBeforeUnmount(() => {
 
 .quittung {
   font-size: var(--fs-secondary);
+  color: var(--c-action);
+}
+
+/* ── Die Reihe des Pakets ────────────────────────────────────────────── */
+.reihe {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--c-hairline-2);
+}
+
+.reihe-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--c-text-muted);
+}
+
+.reihe-kopf:hover {
+  color: var(--c-action);
+  text-decoration: none;
+}
+
+.reihe-zahl {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Eigene Höhe mit Bildlauf: bei einem Paket mit dreißig Übungen schöbe die
+ * vollständige Liste den Rest der Spalte weit nach unten.
+ */
+.reihe-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.reihe-eintrag {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: var(--fs-secondary);
+  color: var(--c-text);
+}
+
+a.reihe-eintrag:hover {
+  background: var(--c-surface);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.reihe-nr {
+  font-family: var(--font-num);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-muted);
+  text-align: right;
+}
+
+/* Wo man gerade ist — kein Link, dafür deutlich markiert. */
+.hier .reihe-eintrag {
+  background: var(--c-tint);
+  color: var(--c-action);
+  font-weight: 500;
+  cursor: default;
+}
+
+.hier .reihe-nr {
+  color: var(--c-action);
+}
+
+.reihe-dauer,
+.reihe-schloss {
+  flex: none;
+  color: var(--c-text-muted);
+}
+
+.reihe-haken {
+  font-size: var(--fs-meta);
   color: var(--c-action);
 }
 
