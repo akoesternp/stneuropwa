@@ -384,6 +384,8 @@ const meineVideos = computed(() =>
             :hilfsmittel="video.hilfsmittel"
             :marken="video.paketNamen"
             :ohne-datei="!video.hatDatei"
+            :sterne-schnitt="video.sterneSchnitt"
+            :sterne-anzahl="video.sterneAnzahl"
             :anteil="anteil(video)"
             :erledigt="erledigt(video)"
           />
@@ -410,6 +412,8 @@ const meineVideos = computed(() =>
             :hilfsmittel="video.hilfsmittel"
             :marken="video.paketNamen"
             :ohne-datei="!video.hatDatei"
+            :sterne-schnitt="video.sterneSchnitt"
+            :sterne-anzahl="video.sterneAnzahl"
             :anteil="anteil(video)"
             :erledigt="erledigt(video)"
           />
@@ -495,6 +499,8 @@ const meineVideos = computed(() =>
             :marken="video.paketNamen"
             :gesperrt="!video.freigeschaltet"
             :ohne-datei="!video.hatDatei"
+            :sterne-schnitt="video.sterneSchnitt"
+            :sterne-anzahl="video.sterneAnzahl"
             :anteil="anteil(video)"
             :erledigt="erledigt(video)"
           />

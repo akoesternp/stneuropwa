@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import SterneWertung from '@/components/SterneWertung.vue'
 
 /**
  * Eine Video-Kachel — auf der Startseite wie in der Paketübersicht.
@@ -39,6 +40,9 @@ const props = withDefaults(
     anteil?: number
     /** Übung als erledigt abgehakt. */
     erledigt?: boolean
+    /** Durchschnitt der Bewertungen, 0 = noch keine. */
+    sterneSchnitt?: number
+    sterneAnzahl?: number
   }>(),
   {
     untertitel: '',
@@ -51,6 +55,8 @@ const props = withDefaults(
     ohneDatei: false,
     anteil: 0,
     erledigt: false,
+    sterneSchnitt: 0,
+    sterneAnzahl: 0,
   },
 )
 
@@ -125,6 +131,15 @@ const thumbStyle = computed(() => ({
       <span v-if="kategorien.length" class="kategorien">
         <span v-for="wert in kategorien" :key="wert" class="kategorie">{{ wert }}</span>
       </span>
+      <!-- Nur wenn es überhaupt Wertungen gibt: „0 Sterne" wäre eine Aussage,
+           die niemand gemacht hat. -->
+      <SterneWertung
+        v-if="sterneAnzahl"
+        class="bewertung"
+        :wert="sterneSchnitt"
+        :anzahl="sterneAnzahl"
+        klein
+      />
       <p v-if="hilfsmittel" class="merkmale t-meta">Hilfsmittel: {{ hilfsmittel }}</p>
       <p v-if="beschreibung" class="beschreibung">{{ beschreibung }}</p>
 
@@ -267,6 +282,10 @@ const thumbStyle = computed(() => ({
   font-family: var(--font-num);
   font-size: var(--fs-meta);
   color: var(--c-action);
+}
+
+.bewertung {
+  margin-top: 2px;
 }
 
 .merkmale {

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Router } from 'express'
 import type { Response } from 'express'
-import { creditPaket } from '../../shared/types.js'
+import { creditPaket, KOMMENTAR_MAX_ZEICHEN } from '../../shared/types.js'
 import type { Zahlweg } from '../../shared/types.js'
 import {
   bucheBestellung,
@@ -14,13 +14,19 @@ import {
   kaufePaket,
   kaufeVideo,
   katalogVideos,
+  kommentareZuVideo,
   listBereiche,
   listBestellungenFuer,
   listZielgruppen,
   leseFortschritt,
+  loescheKommentar,
+  loescheSterne,
   merkeAnbieterReferenz,
   paketInhalte,
+  setzeSterne,
   speichereFortschritt,
+  speichereKommentar,
+  stehtImAngebot,
   storniereBestellung,
 } from '../db.js'
 import type { KaufErgebnis } from '../db.js'
@@ -348,6 +354,114 @@ portalRouter.post('/freischalten/paket/:id', requireUser, async (req, res) => {
   }
 
   antworteAufKauf(res, await kaufePaket(Number(req.session!.subject), paketId))
+})
+
+/**
+ * Sterne und Kommentare unter einer Übung.
+ *
+ * Lesen bewusst ohne Anmeldung: der Katalog ist ohnehin öffentlich, und was
+ * andere über eine Übung sagen, beschreibt das Angebot wie Titel und Laufzeit.
+ * Geprüft wird nur, dass die Übung überhaupt im Angebot steht — sonst ließe
+ * sich über diesen Endpunkt abklopfen, welche Entwürfe es gibt.
+ */
+portalRouter.get('/videos/:id/kommentare', async (req, res) => {
+  const session = currentSession(req, 'user')
+  const benutzerId = session ? Number(session.subject) : null
+  const videoId = Number(req.params.id)
+
+  if (!Number.isInteger(videoId) || !(await stehtImAngebot(videoId))) {
+    res.status(404).json({ error: 'Übung nicht gefunden.' })
+    return
+  }
+
+  res.json(await kommentareZuVideo(videoId, benutzerId))
+})
+
+/**
+ * Die eigene Sternewertung setzen.
+ *
+ * Bewerten darf nur, wer die Übung auch abspielen darf — dieselbe Regel wie
+ * fürs Abspielen, über dasselbe `darfVideoSehen`. Eine Note von jemandem, der
+ * die Übung nie gesehen hat, wäre keine.
+ *
+ * `403` statt `404` ist hier richtig, anders als beim Stream: der Aufrufer ist
+ * angemeldet, die Übung steht ohnehin im öffentlichen Katalog, und „für Sie
+ * noch nicht freigeschaltet" ist die Auskunft, die er braucht.
+ */
+portalRouter.put('/videos/:id/sterne', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const videoId = Number(req.params.id)
+  const sterne = Number(req.body?.sterne)
+
+  if (!Number.isInteger(sterne) || sterne < 1 || sterne > 5) {
+    res.status(400).json({ error: 'Bitte eine Wertung von 1 bis 5 Sternen angeben.' })
+    return
+  }
+  if (!Number.isInteger(videoId) || !(await stehtImAngebot(videoId))) {
+    res.status(404).json({ error: 'Übung nicht gefunden.' })
+    return
+  }
+  if (!(await darfVideoSehen(videoId, benutzerId))) {
+    res.status(403).json({ error: 'Bewerten können Sie nur, was für Sie freigeschaltet ist.' })
+    return
+  }
+
+  await setzeSterne(benutzerId, videoId, sterne)
+  res.json(await kommentareZuVideo(videoId, benutzerId))
+})
+
+portalRouter.delete('/videos/:id/sterne', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const videoId = Number(req.params.id)
+
+  await loescheSterne(benutzerId, videoId)
+  res.json(await kommentareZuVideo(videoId, benutzerId))
+})
+
+/**
+ * Einen Beitrag schreiben — oder auf einen antworten.
+ *
+ * Ob er sofort erscheint, entscheidet der Server: der erste Beitrag eines
+ * Kontos geht in die Prüfliste, danach ist der Weg frei. Die Antwort sagt mit
+ * `sichtbar`, was gilt, damit die Oberfläche nicht raten muss.
+ */
+portalRouter.post('/videos/:id/kommentare', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const videoId = Number(req.params.id)
+  const text = String(req.body?.text ?? '').trim().slice(0, KOMMENTAR_MAX_ZEICHEN)
+
+  if (!text) {
+    res.status(400).json({ error: 'Bitte schreiben Sie etwas.' })
+    return
+  }
+  if (!Number.isInteger(videoId) || !(await stehtImAngebot(videoId))) {
+    res.status(404).json({ error: 'Übung nicht gefunden.' })
+    return
+  }
+  if (!(await darfVideoSehen(videoId, benutzerId))) {
+    res.status(403).json({ error: 'Schreiben können Sie nur unter Übungen, die für Sie freigeschaltet sind.' })
+    return
+  }
+
+  const elternId = req.body?.elternId == null ? null : Number(req.body.elternId)
+  const ergebnis = await speichereKommentar(benutzerId, videoId, text, elternId)
+
+  if (ergebnis.status === 'eltern-unbekannt') {
+    res.status(404).json({ error: 'Der Beitrag, auf den Sie antworten wollten, gibt es nicht mehr.' })
+    return
+  }
+
+  res.status(201).json({ id: ergebnis.id, sichtbar: ergebnis.sichtbar })
+})
+
+/** Einen eigenen Beitrag zurücknehmen. Fremde bleiben unantastbar. */
+portalRouter.delete('/kommentare/:id', requireUser, async (req, res) => {
+  const erledigt = await loescheKommentar(Number(req.params.id), Number(req.session!.subject))
+  if (!erledigt) {
+    res.status(404).json({ error: 'Beitrag nicht gefunden.' })
+    return
+  }
+  res.json({ ok: true })
 })
 
 /**

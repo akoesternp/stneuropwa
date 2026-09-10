@@ -17,6 +17,7 @@ const nav = [
   { label: 'Bereiche', name: 'admin-bereiche' },
   { label: 'Bestellungen', name: 'admin-bestellungen' },
   { label: 'Aktionen', name: 'admin-aktionen' },
+  { label: 'Beiträge', name: 'admin-kommentare' },
   { label: 'Zugänge', name: 'admin-zugaenge' },
 ] as const
 

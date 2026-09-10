@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import Plyr from 'plyr'
 import 'plyr/dist/plyr.css'
 import FreischaltenDialog from '@/components/FreischaltenDialog.vue'
+import Kommentare from '@/components/Kommentare.vue'
 import GButton from '@/components/ui/GButton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCreditsStore } from '@/stores/credits'
@@ -534,6 +535,11 @@ onBeforeUnmount(() => {
         </aside>
       </div>
 
+      <!--
+        Unter allem: was andere zu dieser Übung sagen. Auch für Gäste sichtbar
+        — das beschreibt das Angebot wie Titel und Laufzeit.
+      -->
+      <Kommentare :video-id="video.id" :freigeschaltet="video.freigeschaltet" />
     </template>
 
     <div v-else class="missing">

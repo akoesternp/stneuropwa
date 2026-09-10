@@ -320,6 +320,13 @@ export interface KatalogVideo {
   freigeschaltet: boolean
   /** Liegt überhaupt eine Videodatei vor? Der Name bleibt intern. */
   hatDatei: boolean
+  /** Durchschnitt der Sternewertungen, 0 = noch keine. */
+  sterneSchnitt: number
+  /**
+   * Wie viele Wertungen dahinterstehen. Gehört dazu: 5,0 aus einer Stimme ist
+   * etwas anderes als aus vierzig.
+   */
+  sterneAnzahl: number
 }
 
 /** Ein Paket aus Sicht der Verwaltung — samt der zugeordneten Videos. */
@@ -380,6 +387,59 @@ export interface Fortschritt {
   erledigt: boolean
   /** Zeitstempel der letzten Änderung — bestimmt die Reihenfolge in „Weiterschauen". */
   aktualisiertAm: number
+}
+
+/* ── Sterne und Kommentare ─────────────────────────────────────────────── */
+
+/** Höchstlänge eines Beitrags. Länger liest ohnehin niemand. */
+export const KOMMENTAR_MAX_ZEICHEN = 2000
+
+/**
+ * `offen` = wartet auf Freigabe. `freigegeben` = öffentlich sichtbar.
+ * `abgelehnt` = geprüft und verworfen, bleibt aber als Entscheidung stehen.
+ */
+export type KommentarStatus = 'offen' | 'freigegeben' | 'abgelehnt'
+
+/**
+ * Ein Beitrag, wie er öffentlich erscheint.
+ *
+ * Nie mit E-Mail oder Konto-Nummer: nach außen geht ausschließlich ein
+ * gekürzter Anzeigename.
+ */
+export interface Kommentar {
+  id: number
+  /** `null` = eigenständiger Beitrag, sonst Antwort auf diesen. */
+  elternId: number | null
+  /** Anzeigename, z. B. „Anna M." — bei Beiträgen des Betreibers leer. */
+  name: string
+  /** Vom Betreiber geschrieben. Die Oberfläche markiert das. */
+  vomTeam: boolean
+  text: string
+  angelegtAm: number
+  /**
+   * Nur an den eigenen Beiträgen gesetzt — der Verfasser soll sehen, dass
+   * seiner noch geprüft wird. Bei fremden immer 'freigegeben'.
+   */
+  status: KommentarStatus
+}
+
+/** Was die Detailseite unter der Übung zeigt. */
+export interface KommentarBereich {
+  /** Durchschnitt der Sterne, 0 = noch keine Wertung. */
+  schnitt: number
+  sterneAnzahl: number
+  /** Die eigene Wertung, 0 = keine abgegeben. */
+  meineSterne: number
+  kommentare: Kommentar[]
+}
+
+/** Ein Beitrag aus Sicht der Verwaltung — mit Verfasser und Übung daneben. */
+export interface KommentarEintrag extends Kommentar {
+  videoId: number
+  videoTitel: string
+  benutzerId: number | null
+  email: string
+  geprueftAm: number | null
 }
 
 /** Ein angemeldeter Nutzer, wie ihn /api/auth/me liefert. */

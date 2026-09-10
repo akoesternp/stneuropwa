@@ -139,6 +139,8 @@ function erledigt(video: KatalogVideo): boolean {
           ]"
           :gesperrt="!video.freigeschaltet"
           :ohne-datei="!video.hatDatei"
+          :sterne-schnitt="video.sterneSchnitt"
+          :sterne-anzahl="video.sterneAnzahl"
           :anteil="anteil(video)"
           :erledigt="erledigt(video)"
         />

@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
-import { SCHWIERIGKEITEN } from '../../shared/types.js'
+import { KOMMENTAR_MAX_ZEICHEN, SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   bucheBestellung,
@@ -24,7 +24,9 @@ import {
   listZielgruppenMitInhalt,
   listBenutzer,
   listBestellungen,
+  listKommentare,
   listPakete,
+  listSterne,
   listVideos,
   saveAktion,
   saveBenutzer,
@@ -32,6 +34,10 @@ import {
   savePaket,
   saveZielgruppe,
   saveVideo,
+  loescheKommentar,
+  loescheSterne,
+  setzeKommentarStatus,
+  speichereKommentar,
   storniereBestellung,
   upsertAdmin,
 } from '../db.js'
@@ -811,6 +817,88 @@ adminRouter.post('/bestellungen/:id/stornieren', async (req, res) => {
     res.status(409).json({ error: 'Nur offene Bestellungen lassen sich stornieren.' })
     return
   }
+  res.json({ ok: true })
+})
+
+// ── Kommentare und Sterne ──────────────────────────────────────────────────
+
+/**
+ * Die Prüfliste. Offene stehen oben — nur die verlangen eine Handlung.
+ *
+ * Hier darf die E-Mail des Verfassers stehen: die Liste liegt hinter
+ * requireAdmin. Nach außen geht sie nie.
+ */
+adminRouter.get('/kommentare', async (_req, res) => {
+  res.json(await listKommentare())
+})
+
+/**
+ * Freigeben — und damit dem Verfasser dauerhaft vertrauen.
+ *
+ * Die Freigabe setzt zugleich den Vertrauensmerker an seinem Konto: ab dann
+ * erscheinen seine Beiträge sofort. Genau das ist der Zweck der Prüfung —
+ * einmal Vertrauen fassen statt jeden Satz einzeln durchwinken.
+ */
+adminRouter.post('/kommentare/:id/freigeben', async (req, res) => {
+  if (!(await setzeKommentarStatus(Number(req.params.id), 'freigegeben'))) {
+    res.status(404).json({ error: 'Beitrag nicht gefunden.' })
+    return
+  }
+  res.json({ ok: true })
+})
+
+adminRouter.post('/kommentare/:id/ablehnen', async (req, res) => {
+  if (!(await setzeKommentarStatus(Number(req.params.id), 'abgelehnt'))) {
+    res.status(404).json({ error: 'Beitrag nicht gefunden.' })
+    return
+  }
+  res.json({ ok: true })
+})
+
+adminRouter.delete('/kommentare/:id', async (req, res) => {
+  if (!(await loescheKommentar(Number(req.params.id)))) {
+    res.status(404).json({ error: 'Beitrag nicht gefunden.' })
+    return
+  }
+  res.json({ ok: true })
+})
+
+/**
+ * Als Betreiber schreiben oder antworten.
+ *
+ * Wird aus dem PORTAL heraus aufgerufen, nicht aus dem Backend: beide Rollen
+ * haben eigene Cookies und können gleichzeitig angemeldet sein. Antworten dort
+ * zu schreiben, wo man den Zusammenhang sieht, ist der ganze Punkt.
+ *
+ * Beiträge des Betreibers stehen sofort — die Prüfliste ist für Fremde da.
+ */
+adminRouter.post('/videos/:id/kommentare', async (req, res) => {
+  const videoId = Number(req.params.id)
+  const text = String(req.body?.text ?? '').trim().slice(0, KOMMENTAR_MAX_ZEICHEN)
+
+  if (!text) {
+    res.status(400).json({ error: 'Bitte schreiben Sie etwas.' })
+    return
+  }
+
+  const elternId = req.body?.elternId == null ? null : Number(req.body.elternId)
+  const ergebnis = await speichereKommentar(null, videoId, text, elternId)
+
+  if (ergebnis.status === 'eltern-unbekannt') {
+    res.status(404).json({ error: 'Der Beitrag, auf den geantwortet werden sollte, fehlt.' })
+    return
+  }
+
+  res.status(201).json({ id: ergebnis.id })
+})
+
+/** Die Wertungen einer Übung — samt der Möglichkeit, eine zu entfernen. */
+adminRouter.get('/videos/:id/sterne', async (req, res) => {
+  res.json(await listSterne(Number(req.params.id)))
+})
+
+adminRouter.delete('/videos/:id/sterne/:benutzerId', async (req, res) => {
+  await loescheSterne(Number(req.params.benutzerId), Number(req.params.id))
   res.json({ ok: true })
 })
 

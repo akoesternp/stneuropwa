@@ -17,6 +17,10 @@ import type {
   BestellungEintrag,
   Fortschritt,
   KatalogVideo,
+  Kommentar,
+  KommentarBereich,
+  KommentarEintrag,
+  KommentarStatus,
   Paket,
   PaketEintrag,
   Video,
@@ -127,6 +131,19 @@ async function createSchema(): Promise<void> {
     if (!benutzerSpalten.some((spalte) => spalte.Field === 'start_aktion_id')) {
       await conn.query(
         `ALTER TABLE benutzer ADD COLUMN start_aktion_id INT UNSIGNED NULL DEFAULT NULL`,
+      )
+    }
+
+    /*
+     * Vertrauensmerker fürs Kommentieren. Der ERSTE Beitrag eines Nutzers geht
+     * in die Prüfliste; gibt der Betreiber ihn frei, steht dieses Kennzeichen
+     * auf 1 und alle weiteren Beiträge erscheinen sofort. Das hält
+     * Wegwerfkonten draußen, ohne dass ein Gespräch bei jeder Antwort auf die
+     * nächste Backend-Sitzung warten muss.
+     */
+    if (!benutzerSpalten.some((spalte) => spalte.Field === 'kommentare_frei')) {
+      await conn.query(
+        `ALTER TABLE benutzer ADD COLUMN kommentare_frei TINYINT(1) NOT NULL DEFAULT 0`,
       )
     }
 
@@ -395,6 +412,69 @@ async function createSchema(): Promise<void> {
         aktualisiert_am BIGINT NOT NULL DEFAULT 0,
         PRIMARY KEY (benutzer_id, video_id),
         KEY ix_zuletzt (benutzer_id, aktualisiert_am)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
+    /*
+     * Sternewertungen — eine je Nutzer und Übung.
+     *
+     * Der zusammengesetzte Primärschlüssel erzwingt das in der Datenbank statt
+     * in der Anwendung: eine zweite Wertung ist technisch kein zweiter
+     * Datensatz, sondern ein INSERT … ON DUPLICATE KEY UPDATE. Damit kann
+     * niemand den Durchschnitt durch Mehrfachabgabe verschieben, und die Frage
+     * nach einer Freigabe stellt sich gar nicht erst — eine nackte Zahl
+     * enthält nichts, was zu moderieren wäre.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS video_sterne (
+        video_id INT UNSIGNED NOT NULL,
+        benutzer_id INT UNSIGNED NOT NULL,
+        sterne TINYINT UNSIGNED NOT NULL,
+        angelegt_am BIGINT NOT NULL DEFAULT 0,
+        aktualisiert_am BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (video_id, benutzer_id),
+        KEY ix_benutzer (benutzer_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
+    /*
+     * Kommentare unter den Übungen, mit Antworten eine Ebene tief.
+     *
+     * `eltern_id` NULL = eigener Beitrag, sonst Antwort darauf. Tiefer als eine
+     * Ebene kann es nicht werden: der Server hängt eine Antwort auf eine
+     * Antwort an deren Wurzel um, egal was der Client schickt.
+     *
+     * `benutzer_id` NULL = vom Betreiber geschrieben. Dessen Beiträge stehen
+     * sofort auf 'freigegeben'.
+     *
+     * `anzeige_name` ist eine Momentaufnahme aus benutzer.name. Damit fasst der
+     * öffentliche Lesepfad die Benutzertabelle gar nicht erst an — dort stehen
+     * die E-Mail-Adressen, und was nie mitgelesen wird, kann auch nicht
+     * versehentlich mit hinausgehen.
+     *
+     * 'abgelehnt' bleibt stehen statt zu verschwinden: die Entscheidung soll
+     * nachvollziehbar und zurücknehmbar sein. Öffentlich ist ausschließlich
+     * 'freigegeben'.
+     *
+     * Kein FOREIGN KEY, wie überall hier — aufgeräumt wird in deleteVideo und
+     * deleteBenutzer.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS kommentare (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        video_id INT UNSIGNED NOT NULL,
+        eltern_id INT UNSIGNED NULL DEFAULT NULL,
+        benutzer_id INT UNSIGNED NULL DEFAULT NULL,
+        anzeige_name VARCHAR(128) NOT NULL DEFAULT '',
+        text TEXT NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'offen',
+        angelegt_am BIGINT NOT NULL DEFAULT 0,
+        geprueft_am BIGINT NULL DEFAULT NULL,
+        PRIMARY KEY (id),
+        KEY ix_video (video_id, status, angelegt_am),
+        KEY ix_status (status, angelegt_am),
+        KEY ix_eltern (eltern_id),
+        KEY ix_benutzer (benutzer_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
 
@@ -684,6 +764,13 @@ export async function deleteBenutzer(id: number): Promise<void> {
     await conn.query('DELETE FROM benutzer_pakete WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM benutzer_videos WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM fortschritt WHERE benutzer_id = ?', [id])
+    /*
+     * Wer sein Konto verliert, kann eine veröffentlichte Äußerung nicht mehr
+     * zurücknehmen — sie stehenzulassen hieße, Text über eine Person zu
+     * veröffentlichen, die es hier nicht mehr gibt.
+     */
+    await conn.query('DELETE FROM video_sterne WHERE benutzer_id = ?', [id])
+    await conn.query('DELETE FROM kommentare WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM benutzer WHERE id = ?', [id])
     await conn.commit()
   } catch (cause) {
@@ -988,9 +1075,11 @@ export async function katalogVideos(benutzerId: number | null): Promise<KatalogV
     freigeschaltet: Number(row.freigeschaltet) === 1,
     // Nur ob eine Datei hinterlegt ist — der Name bleibt intern.
     hatDatei: String(row.datei ?? '') !== '',
+    sterneSchnitt: 0,
+    sterneAnzahl: 0,
   }))
 
-  return ergaenzeZuordnungen(videos)
+  return ergaenzeSterne(await ergaenzeZuordnungen(videos))
 }
 
 /** Alle Videos, auch inaktive — die Liste der Verwaltung. */
@@ -1139,6 +1228,13 @@ export async function deleteVideo(id: number): Promise<void> {
     await conn.query('DELETE FROM video_pakete WHERE video_id = ?', [id])
     await conn.query('DELETE FROM zielgruppe_videos WHERE video_id = ?', [id])
     await conn.query('DELETE FROM fortschritt WHERE video_id = ?', [id])
+    /*
+     * Ohne das bliebe eine verwaiste Wertung liegen und ginge in den
+     * Durchschnitt einer später gleich nummerierten Übung ein — InnoDB setzt
+     * AUTO_INCREMENT nach einem Neustart auf MAX(id)+1 zurück.
+     */
+    await conn.query('DELETE FROM video_sterne WHERE video_id = ?', [id])
+    await conn.query('DELETE FROM kommentare WHERE video_id = ?', [id])
     await conn.query('DELETE FROM videos WHERE id = ?', [id])
     await conn.commit()
   } catch (cause) {
@@ -2091,6 +2187,357 @@ export async function speichereFortschritt(
        aktualisiert_am = VALUES(aktualisiert_am)`,
     [benutzerId, videoId, Math.max(0, Math.round(position)), erledigt ? 1 : 0, Date.now()],
   )
+}
+
+/* ── Sterne und Kommentare ─────────────────────────────────────────────── */
+
+/**
+ * „Anna Musterfrau" → „Anna M."
+ *
+ * Der Nachname geht niemanden etwas an, der Vorname macht einen Beitrag aber
+ * erst zu dem einer Person. Ohne hinterlegten Namen bleibt es beim Platzhalter.
+ */
+function anzeigeName(name: string): string {
+  const teile = name.trim().split(/\s+/).filter(Boolean)
+  if (!teile.length) return 'Nutzer/in'
+  if (teile.length === 1) return teile[0]!.slice(0, 40)
+  return `${teile[0]!.slice(0, 40)} ${teile[teile.length - 1]![0]!.toUpperCase()}.`
+}
+
+/**
+ * Steht diese Übung überhaupt im Angebot?
+ *
+ * Dieselbe Bedingung wie im Katalog: aktiv und öffentlich oder in einem Paket.
+ * Gebraucht dort, wo etwas öffentlich lesbar ist — sonst ließe sich über einen
+ * Leseendpunkt abklopfen, welche Entwürfe es gibt.
+ */
+export async function stehtImAngebot(videoId: number): Promise<boolean> {
+  await ensureReady()
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT 1 FROM videos v
+      WHERE v.id = ? AND v.aktiv = 1
+        AND (v.oeffentlich = 1 OR EXISTS (SELECT 1 FROM video_pakete vp WHERE vp.video_id = v.id))
+      LIMIT 1`,
+    [videoId],
+  )
+  return Boolean(zeilen[0])
+}
+
+/**
+ * Hängt Sterne-Durchschnitt und -Anzahl an eine ganze Liste von Übungen.
+ *
+ * EINE Abfrage für alles, nicht eine je Kachel: bei 350 Übungen wäre das der
+ * Unterschied zwischen drei und 353 Rundreisen je Seitenaufruf. Nach dem
+ * Vorbild von `ergaenzeZuordnungen`.
+ */
+async function ergaenzeSterne<
+  T extends { id: number; sterneSchnitt: number; sterneAnzahl: number },
+>(eintraege: T[]): Promise<T[]> {
+  if (!eintraege.length) return eintraege
+
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT video_id, AVG(sterne) AS schnitt, COUNT(*) AS anzahl
+       FROM video_sterne
+      WHERE video_id IN (?)
+      GROUP BY video_id`,
+    [eintraege.map((eintrag) => eintrag.id)],
+  )
+
+  const nachId = new Map(eintraege.map((eintrag) => [eintrag.id, eintrag]))
+  for (const zeile of zeilen) {
+    const eintrag = nachId.get(Number(zeile.video_id))
+    if (!eintrag) continue
+    // Auf eine Nachkommastelle: „4,3" ist eine Aussage, „4,33333" ein Artefakt.
+    eintrag.sterneSchnitt = Math.round(Number(zeile.schnitt) * 10) / 10
+    eintrag.sterneAnzahl = Number(zeile.anzahl) || 0
+  }
+
+  return eintraege
+}
+
+/**
+ * Setzt die Sternewertung eines Nutzers — oder ersetzt seine bisherige.
+ *
+ * Über ON DUPLICATE KEY, nicht über „erst suchen, dann schreiben": der
+ * Primärschlüssel entscheidet, ob es ein neuer Eintrag ist, und damit gibt es
+ * kein Fenster, in dem zwei gleichzeitige Wertungen zwei Zeilen erzeugen.
+ */
+export async function setzeSterne(
+  benutzerId: number,
+  videoId: number,
+  sterne: number,
+): Promise<void> {
+  await ensureReady()
+  const jetzt = Date.now()
+  await getPool().query(
+    `INSERT INTO video_sterne (video_id, benutzer_id, sterne, angelegt_am, aktualisiert_am)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE sterne = VALUES(sterne), aktualisiert_am = VALUES(aktualisiert_am)`,
+    [videoId, benutzerId, sterne, jetzt, jetzt],
+  )
+}
+
+export async function loescheSterne(benutzerId: number, videoId: number): Promise<void> {
+  await ensureReady()
+  await getPool().query('DELETE FROM video_sterne WHERE video_id = ? AND benutzer_id = ?', [
+    videoId,
+    benutzerId,
+  ])
+}
+
+function toKommentar(row: Record<string, unknown>): Kommentar {
+  return {
+    id: Number(row.id),
+    elternId: row.eltern_id === null ? null : Number(row.eltern_id),
+    name: String(row.anzeige_name ?? ''),
+    vomTeam: row.benutzer_id === null,
+    text: String(row.text ?? ''),
+    angelegtAm: Number(row.angelegt_am) || 0,
+    status: String(row.status) as KommentarStatus,
+  }
+}
+
+/**
+ * Was unter einer Übung steht: Sterne und die sichtbaren Beiträge.
+ *
+ * Für Angemeldete kommen die EIGENEN noch offenen Beiträge mit — sonst
+ * schriebe jemand ein zweites Mal, weil er seinen ersten nicht sieht. Fremde
+ * offene Beiträge bleiben unsichtbar.
+ */
+export async function kommentareZuVideo(
+  videoId: number,
+  benutzerId: number | null,
+): Promise<KommentarBereich> {
+  await ensureReady()
+
+  const sterne: Record<string, unknown>[] = await getPool().query(
+    'SELECT AVG(sterne) AS schnitt, COUNT(*) AS anzahl FROM video_sterne WHERE video_id = ?',
+    [videoId],
+  )
+
+  const eigene: Record<string, unknown>[] =
+    benutzerId === null
+      ? []
+      : await getPool().query(
+          'SELECT sterne FROM video_sterne WHERE video_id = ? AND benutzer_id = ?',
+          [videoId, benutzerId],
+        )
+
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT * FROM kommentare
+      WHERE video_id = ?
+        AND (status = 'freigegeben' ${benutzerId === null ? '' : 'OR benutzer_id = ?'})
+      ORDER BY angelegt_am`,
+    benutzerId === null ? [videoId] : [videoId, benutzerId],
+  )
+
+  /*
+   * Eine Antwort ist nur sichtbar, wenn ihr Beitrag es ist. Sonst stünde unter
+   * der Übung eine Erwiderung ohne das, worauf sie sich bezieht.
+   */
+  const sichtbareWurzeln = new Set(
+    zeilen.filter((zeile) => zeile.eltern_id === null).map((zeile) => Number(zeile.id)),
+  )
+
+  const kommentare = zeilen
+    .filter((zeile) => zeile.eltern_id === null || sichtbareWurzeln.has(Number(zeile.eltern_id)))
+    .map(toKommentar)
+
+  return {
+    schnitt: Math.round((Number(sterne[0]?.schnitt) || 0) * 10) / 10,
+    sterneAnzahl: Number(sterne[0]?.anzahl) || 0,
+    meineSterne: Number(eigene[0]?.sterne) || 0,
+    kommentare,
+  }
+}
+
+export type KommentarErgebnis =
+  | { status: 'ok'; id: number; sichtbar: boolean }
+  | { status: 'eltern-unbekannt' }
+
+/**
+ * Legt einen Beitrag an.
+ *
+ * Zwei Dinge entscheidet der Server, nicht der Client: ob der Beitrag sofort
+ * sichtbar ist (`kommentare_frei` am Konto) und an welcher Wurzel eine Antwort
+ * hängt. Zeigt `elternId` auf eine Antwort, wird auf deren Wurzel umgehängt —
+ * so kann die Tiefe nie über eine Ebene wachsen, egal was geschickt wird.
+ *
+ * `benutzerId === null` heißt: vom Betreiber. Dessen Beiträge sind sofort
+ * sichtbar; die Prüfliste ist für Fremde da.
+ */
+export async function speichereKommentar(
+  benutzerId: number | null,
+  videoId: number,
+  text: string,
+  elternId: number | null,
+): Promise<KommentarErgebnis> {
+  await ensureReady()
+
+  let wurzel: number | null = null
+  if (elternId !== null) {
+    const eltern: Record<string, unknown>[] = await getPool().query(
+      'SELECT id, eltern_id, video_id FROM kommentare WHERE id = ?',
+      [elternId],
+    )
+    const treffer = eltern[0]
+    if (!treffer || Number(treffer.video_id) !== videoId) return { status: 'eltern-unbekannt' }
+    wurzel = treffer.eltern_id === null ? Number(treffer.id) : Number(treffer.eltern_id)
+  }
+
+  let name = ''
+  let sofort = true
+  if (benutzerId !== null) {
+    const konten: Record<string, unknown>[] = await getPool().query(
+      'SELECT name, kommentare_frei FROM benutzer WHERE id = ?',
+      [benutzerId],
+    )
+    name = anzeigeName(String(konten[0]?.name ?? ''))
+    sofort = Number(konten[0]?.kommentare_frei) === 1
+  }
+
+  const jetzt = Date.now()
+  const ergebnis = await getPool().query(
+    `INSERT INTO kommentare
+       (video_id, eltern_id, benutzer_id, anzeige_name, text, status, angelegt_am, geprueft_am)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      videoId,
+      wurzel,
+      benutzerId,
+      name,
+      text,
+      sofort ? 'freigegeben' : 'offen',
+      jetzt,
+      sofort ? jetzt : null,
+    ],
+  )
+
+  return { status: 'ok', id: Number(ergebnis.insertId), sichtbar: sofort }
+}
+
+/** Die Prüfliste — offene zuerst, denn nur die verlangen eine Handlung. */
+export async function listKommentare(): Promise<KommentarEintrag[]> {
+  await ensureReady()
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT k.*, u.email, v.titel AS video_titel
+       FROM kommentare k
+       LEFT JOIN benutzer u ON u.id = k.benutzer_id
+       LEFT JOIN videos v ON v.id = k.video_id
+      ORDER BY k.status = 'offen' DESC, k.angelegt_am DESC
+      LIMIT 300`,
+  )
+
+  return zeilen.map((zeile) => ({
+    ...toKommentar(zeile),
+    videoId: Number(zeile.video_id),
+    videoTitel: String(zeile.video_titel ?? '—'),
+    benutzerId: zeile.benutzer_id === null ? null : Number(zeile.benutzer_id),
+    email: String(zeile.email ?? '—'),
+    geprueftAm: zeile.geprueft_am === null ? null : Number(zeile.geprueft_am),
+  }))
+}
+
+/**
+ * Gibt einen Beitrag frei oder lehnt ihn ab.
+ *
+ * Eine Freigabe setzt zugleich `kommentare_frei` am Konto des Verfassers: ab
+ * dann erscheinen seine Beiträge sofort. Genau das ist der Zweck der Prüfung —
+ * einmal Vertrauen fassen statt jeden Satz einzeln durchwinken.
+ */
+export async function setzeKommentarStatus(
+  id: number,
+  status: KommentarStatus,
+): Promise<boolean> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const zeilen: Record<string, unknown>[] = await conn.query(
+      'SELECT benutzer_id FROM kommentare WHERE id = ?',
+      [id],
+    )
+    if (!zeilen[0]) {
+      await conn.rollback()
+      return false
+    }
+
+    await conn.query('UPDATE kommentare SET status = ?, geprueft_am = ? WHERE id = ?', [
+      status,
+      Date.now(),
+      id,
+    ])
+
+    const verfasser = zeilen[0].benutzer_id
+    if (status === 'freigegeben' && verfasser !== null) {
+      await conn.query('UPDATE benutzer SET kommentare_frei = 1 WHERE id = ?', [Number(verfasser)])
+    }
+
+    await conn.commit()
+    return true
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/**
+ * Löscht einen Beitrag samt seiner Antworten.
+ *
+ * Mit `benutzerId` nur den eigenen — der Nutzer soll zurücknehmen können, was
+ * er geschrieben hat, aber nichts von anderen.
+ */
+export async function loescheKommentar(id: number, benutzerId?: number): Promise<boolean> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const zeilen: Record<string, unknown>[] = await conn.query(
+      benutzerId === undefined
+        ? 'SELECT id FROM kommentare WHERE id = ?'
+        : 'SELECT id FROM kommentare WHERE id = ? AND benutzer_id = ?',
+      benutzerId === undefined ? [id] : [id, benutzerId],
+    )
+    if (!zeilen[0]) {
+      await conn.rollback()
+      return false
+    }
+
+    // Antworten zuerst: eine Erwiderung ohne ihren Beitrag ergäbe keinen Sinn.
+    await conn.query('DELETE FROM kommentare WHERE eltern_id = ?', [id])
+    await conn.query('DELETE FROM kommentare WHERE id = ?', [id])
+
+    await conn.commit()
+    return true
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/** Alle Wertungen einer Übung — nur für die Verwaltung. */
+export async function listSterne(
+  videoId: number,
+): Promise<{ benutzerId: number; email: string; sterne: number; am: number }[]> {
+  await ensureReady()
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT s.benutzer_id, s.sterne, s.aktualisiert_am, u.email
+       FROM video_sterne s LEFT JOIN benutzer u ON u.id = s.benutzer_id
+      WHERE s.video_id = ? ORDER BY s.aktualisiert_am DESC`,
+    [videoId],
+  )
+  return zeilen.map((zeile) => ({
+    benutzerId: Number(zeile.benutzer_id),
+    email: String(zeile.email ?? '—'),
+    sterne: Number(zeile.sterne) || 0,
+    am: Number(zeile.aktualisiert_am) || 0,
+  }))
 }
 
 /* ── Backend-Zugänge ───────────────────────────────────────────────────── */
