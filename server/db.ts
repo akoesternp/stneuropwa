@@ -1984,7 +1984,17 @@ export type ErstattungsErgebnis =
  * Das Geld selbst bewegt diese Funktion nicht — bei PayPal tut das der
  * Aufrufer, bei Vorkasse ein Mensch mit einer Überweisung.
  */
-export async function erstatteBestellung(bestellungId: number): Promise<ErstattungsErgebnis> {
+export async function erstatteBestellung(
+  bestellungId: number,
+  /**
+   * Setzt die Regel außer Kraft — für den Fall, dass ein Kunde einen
+   * ANSPRUCH hat, den unsere Kulanzregel nicht kennt: das gesetzliche
+   * Widerrufsrecht gilt auch dann, wenn er die Neuro schon ausgegeben hat.
+   * Dann wird abgebucht, was noch da ist — mehr geht nicht, und ein
+   * negatives Guthaben würde jeden weiteren Kauf blockieren.
+   */
+  trotzdem = false,
+): Promise<ErstattungsErgebnis> {
   await ensureReady()
   const conn = await getPool().getConnection()
   try {
@@ -2011,30 +2021,36 @@ export async function erstatteBestellung(bestellungId: number): Promise<Erstattu
 
     await conn.query('SELECT credits FROM benutzer WHERE id = ? FOR UPDATE', [benutzerId])
 
-    const gutschrift: Record<string, unknown>[] = await conn.query(
-      `SELECT MIN(id) AS id FROM guthaben_buchungen WHERE bezug_id = ? AND grund = 'kauf'`,
-      [bestellungId],
-    )
-    if (gutschrift[0]?.id == null) {
-      await conn.rollback()
-      return {
-        status: 'nicht-erstattbar',
-        grund:
-          'Zu diesem Kauf gibt es keine Buchung im Guthabenbuch — er ist älter als das Buch.',
+    /*
+     * Die Kulanzregel — übersprungen, wenn ausdrücklich angewiesen. Dann
+     * zählt nicht, ob noch alles daliegt, sondern nur, dass die Bestellung
+     * bezahlt war.
+     */
+    if (!trotzdem) {
+      const gutschrift: Record<string, unknown>[] = await conn.query(
+        `SELECT MIN(id) AS id FROM guthaben_buchungen WHERE bezug_id = ? AND grund = 'kauf'`,
+        [bestellungId],
+      )
+      if (gutschrift[0]?.id == null) {
+        await conn.rollback()
+        return {
+          status: 'nicht-erstattbar',
+          grund:
+            'Zu diesem Kauf gibt es keine Buchung im Guthabenbuch — er ist älter als das Buch.',
+        }
       }
-    }
 
-    const tief: Record<string, unknown>[] = await conn.query(
-      `SELECT MIN(stand_danach) AS tiefstand FROM guthaben_buchungen
-        WHERE benutzer_id = ? AND id >= ?`,
-      [benutzerId, Number(gutschrift[0].id)],
-    )
-    const tiefstand = Number(tief[0]?.tiefstand ?? -1)
-    if (tiefstand < bestellung.credits) {
-      await conn.rollback()
-      return {
-        status: 'nicht-erstattbar',
-        grund: `Von diesen ${bestellung.credits} Neuro wurde bereits etwas ausgegeben.`,
+      const tief: Record<string, unknown>[] = await conn.query(
+        `SELECT MIN(stand_danach) AS tiefstand FROM guthaben_buchungen
+          WHERE benutzer_id = ? AND id >= ?`,
+        [benutzerId, Number(gutschrift[0].id)],
+      )
+      if (Number(tief[0]?.tiefstand ?? -1) < bestellung.credits) {
+        await conn.rollback()
+        return {
+          status: 'nicht-erstattbar',
+          grund: `Von diesen ${bestellung.credits} Neuro wurde bereits etwas ausgegeben.`,
+        }
       }
     }
 
@@ -2049,13 +2065,26 @@ export async function erstatteBestellung(bestellungId: number): Promise<Erstattu
       return { status: 'nicht-erstattbar', grund: 'Die Bestellung hat sich zwischenzeitlich geändert.' }
     }
 
+    /*
+     * Höchstens so viel, wie noch da ist. Bei einer Erstattung gegen die
+     * Regel hat der Käufer in der Regel schon etwas ausgegeben — dann wäre
+     * die volle Menge ein Minus, und ein Minus blockiert jeden Kauf danach.
+     */
+    const vorhanden: Record<string, unknown>[] = await conn.query(
+      'SELECT credits FROM benutzer WHERE id = ?',
+      [benutzerId],
+    )
+    const abbuchen = Math.min(bestellung.credits, Number(vorhanden[0]?.credits) || 0)
+
     const stand = await schreibeGuthaben(
       conn,
       benutzerId,
-      -bestellung.credits,
+      -abbuchen,
       'erstattung',
       bestellungId,
-      bestellung.referenz,
+      abbuchen === bestellung.credits
+        ? bestellung.referenz
+        : `${bestellung.referenz} (nur ${abbuchen} von ${bestellung.credits} vorhanden)`,
     )
 
     await conn.commit()
@@ -2074,6 +2103,27 @@ export async function erstatteBestellung(bestellungId: number): Promise<Erstattu
   } finally {
     conn.release()
   }
+}
+
+/**
+ * Wer hinter einer Bestellung steht.
+ *
+ * Nur E-Mail und Name, nur für die Bestätigung. Die Verwaltungsliste
+ * bringt beides schon mit; hier geht es um eine einzelne Bestellung, und
+ * dafür wäre sie zu schwer.
+ */
+export async function kontoZurBestellung(
+  bestellungId: number,
+): Promise<{ email: string; name: string } | null> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT u.email, u.name FROM bestellungen b
+       JOIN benutzer u ON u.id = b.benutzer_id
+      WHERE b.id = ?`,
+    [bestellungId],
+  )
+  if (!rows[0]) return null
+  return { email: String(rows[0].email ?? ''), name: String(rows[0].name ?? '') }
 }
 
 /** Das Guthabenbuch eines Kontos — jüngste zuerst. */

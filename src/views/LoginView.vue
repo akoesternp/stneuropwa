@@ -110,8 +110,9 @@ async function onSubmit() {
         </RouterLink>
 
         <div class="legal t-meta">
-          <a href="#impressum">Impressum</a>
-          <a href="#datenschutz">Datenschutz</a>
+          <RouterLink :to="{ name: 'impressum' }">Impressum</RouterLink>
+          <RouterLink :to="{ name: 'datenschutz' }">Datenschutz</RouterLink>
+          <RouterLink :to="{ name: 'widerruf' }">Widerruf</RouterLink>
 
           <!--
             Zugang zur Verwaltung. Bewusst unauffällig und rechts abgesetzt —

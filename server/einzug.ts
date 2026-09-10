@@ -1,4 +1,5 @@
-import { anbieterReferenzVon, bucheBestellung } from './db.js'
+import { anbieterReferenzVon, bucheBestellung, kontoZurBestellung } from './db.js'
+import { sendeBestellbestaetigung } from './mail.js'
 import { erfassePaypalZahlung, erstattePaypalZahlung, leseVorgang } from './paypal.js'
 import type { Bestellung } from '../shared/types.js'
 
@@ -65,6 +66,7 @@ export async function ziehePaypalEin(bestellung: Bestellung): Promise<EinzugErge
     `[Zahlung] PayPal ${bestellung.referenz}: +${bestellung.credits} Credits, ` +
       `neuer Stand ${gebucht.credits}`,
   )
+  await bestaetigePerPost(gebucht.bestellung)
   return { status: 'gebucht', gutgeschrieben: bestellung.credits, credits: gebucht.credits }
 }
 
@@ -104,4 +106,17 @@ export async function erstattePaypalKauf(
 
   console.log(`[Zahlung] ${bestellung.referenz}: bei PayPal zurückgezahlt (${zurueck.erstattungId})`)
   return { ok: true, erstattungId: zurueck.erstattungId }
+}
+
+/**
+ * Schickt die Bestellbestätigung — der Schritt, ohne den das Widerrufsrecht
+ * bei digitalen Inhalten nicht erlischt (§ 356 Abs. 6 Nr. 2 Buchst. d BGB).
+ *
+ * Steht hier und nicht in der Buchung selbst: die läuft in einer
+ * Transaktion, und ein hängender Postausgang darf sie nicht aufhalten.
+ */
+export async function bestaetigePerPost(bestellung: Bestellung): Promise<void> {
+  const konto = await kontoZurBestellung(bestellung.id)
+  if (!konto) return
+  await sendeBestellbestaetigung(bestellung, konto.email, konto.name)
 }

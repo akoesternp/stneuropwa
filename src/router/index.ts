@@ -100,6 +100,62 @@ const router = createRouter({
           component: () => import('@/views/VideoListeView.vue'),
           meta: { public: true },
         },
+        /*
+         * Die Pflichttexte — vorerst Platzhalter, die offen sagen, dass sie
+         * welche sind. Öffentlich, denn sie müssen auch ohne Konto
+         * erreichbar sein, und aus derselben Ansicht: ihnen fehlt allen
+         * dasselbe, nämlich der geprüfte Inhalt.
+         */
+        {
+          path: 'impressum',
+          name: 'impressum',
+          component: () => import('@/views/RechtstextView.vue'),
+          meta: {
+            public: true,
+            titel: 'Impressum',
+            einleitung: 'Wer hinter diesem Angebot steht.',
+            punkte: [
+              'Name und Anschrift des Anbieters',
+              'Vertretungsberechtigte Person',
+              'Kontaktdaten samt E-Mail und Telefon',
+              'Registereintrag und Umsatzsteuer-Identifikationsnummer, soweit vorhanden',
+              'Bei Heilberufen: Berufsbezeichnung, zuständige Kammer und Berufsordnung',
+            ],
+          },
+        },
+        {
+          path: 'datenschutz',
+          name: 'datenschutz',
+          component: () => import('@/views/RechtstextView.vue'),
+          meta: {
+            public: true,
+            titel: 'Datenschutz',
+            einleitung: 'Welche Daten hier anfallen und was damit geschieht.',
+            punkte: [
+              'Verantwortlicher und Kontakt',
+              'Konto, Trainingsfortschritt und Beiträge — Zweck und Rechtsgrundlage',
+              'Zahlungsabwicklung über PayPal und die dabei übermittelten Daten',
+              'Speicherdauer, auch für Bestellungen und Guthabenbuchungen',
+              'Rechte der Betroffenen und Beschwerderecht bei der Aufsichtsbehörde',
+            ],
+          },
+        },
+        {
+          path: 'widerruf',
+          name: 'widerruf',
+          component: () => import('@/views/RechtstextView.vue'),
+          meta: {
+            public: true,
+            titel: 'Widerrufsbelehrung',
+            einleitung: 'Wann sich ein Kauf widerrufen lässt — und wann dieses Recht erlischt.',
+            punkte: [
+              'Widerrufsrecht, Frist und wie der Widerruf zu erklären ist',
+              'Muster-Widerrufsformular',
+              'Folgen des Widerrufs und Rückzahlung',
+              'Erlöschen bei digitalen Inhalten — Zustimmung zur sofortigen Ausführung',
+            ],
+          },
+        },
         {
           /*
            * Preisliste und Staffel — auch ohne Anmeldung: was etwas kostet,

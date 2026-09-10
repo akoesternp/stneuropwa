@@ -136,13 +136,22 @@ async function einziehen(row: BestellungEintrag) {
  * dabei automatisch zurück; bei einer Überweisung muss ein Mensch überweisen,
  * und genau das sagt die Rückmeldung dann auch.
  */
-async function erstatten(row: BestellungEintrag) {
-  const frage =
-    `${row.referenz} über ${euro.format(row.betragCent / 100)} erstatten?\n\n` +
-    `${row.credits} Neuro werden bei ${row.email} wieder abgebucht.` +
-    (row.zahlweg === 'paypal'
-      ? '\nDas Geld geht über PayPal automatisch zurück.'
-      : '\nDas Geld müssen Sie selbst zurücküberweisen.')
+async function erstatten(row: BestellungEintrag, trotzdem = false) {
+  /*
+   * Bei „trotzdem" steht mehr auf dem Spiel: der Käufer hat von den Neuro
+   * schon etwas ausgegeben. Abgebucht wird dann nur, was noch da ist — der
+   * Rest bleibt bei ihm. Das gehört vor den Klick, nicht danach.
+   */
+  const frage = trotzdem
+    ? `${row.referenz} über ${euro.format(row.betragCent / 100)} GEGEN DIE REGEL erstatten?\n\n` +
+      `Von diesen ${row.credits} Neuro wurde bereits etwas ausgegeben. Abgebucht wird nur, ` +
+      `was noch übrig ist — den Rest behält ${row.email}.\n\n` +
+      'Das ist der Weg für einen gesetzlichen Widerruf, nicht für Kulanz.'
+    : `${row.referenz} über ${euro.format(row.betragCent / 100)} erstatten?\n\n` +
+      `${row.credits} Neuro werden bei ${row.email} wieder abgebucht.` +
+      (row.zahlweg === 'paypal'
+        ? '\nDas Geld geht über PayPal automatisch zurück.'
+        : '\nDas Geld müssen Sie selbst zurücküberweisen.')
   if (!window.confirm(frage)) return
 
   busy.value = true
@@ -151,7 +160,7 @@ async function erstatten(row: BestellungEintrag) {
   try {
     const antwort = await api.post<{ zahlweg: string; betragCent: number }>(
       `/admin/bestellungen/${row.id}/erstatten`,
-      {},
+      { trotzdem },
     )
     notice.value =
       antwort.zahlweg === 'paypal'
@@ -294,9 +303,19 @@ function erklaerung(row: BestellungEintrag): string {
             Erstatten
           </GButton>
 
-          <span v-if="row.status === 'bezahlt' && !row.erstattbar" class="anbieter t-meta">
-            verbraucht
-          </span>
+          <!--
+            Verbraucht heißt: nach unserer Kulanzregel nichts mehr zu machen.
+            Ein gesetzlicher Widerruf steht darüber — solange keine
+            Bestellbestätigung auf dauerhaftem Datenträger verschickt wird,
+            erlischt das Widerrufsrecht nämlich gar nicht. Deshalb der Weg
+            daneben, unauffällig, aber vorhanden.
+          -->
+          <template v-if="row.status === 'bezahlt' && !row.erstattbar">
+            <span class="anbieter t-meta">verbraucht</span>
+            <GButton variant="text" size="sm" :disabled="busy" @click="erstatten(row, true)">
+              trotzdem erstatten
+            </GButton>
+          </template>
 
           <span v-if="row.status === 'erstattet' && row.anbieterReferenz" class="anbieter t-meta">
             {{ row.anbieterReferenz }}

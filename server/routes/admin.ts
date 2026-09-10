@@ -6,7 +6,7 @@ import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
 import { KOMMENTAR_MAX_ZEICHEN, SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
-import { erstattePaypalKauf, ziehePaypalEin } from '../einzug.js'
+import { bestaetigePerPost, erstattePaypalKauf, ziehePaypalEin } from '../einzug.js'
 import {
   bucheBestellung,
   erstatteBestellung,
@@ -818,6 +818,9 @@ adminRouter.post('/bestellungen/:id/bestaetigen', async (req, res) => {
         `[Zahlung] Vorkasse ${ergebnis.bestellung.referenz} bestätigt: ` +
           `+${ergebnis.bestellung.credits} Credits, neuer Stand ${ergebnis.credits}`,
       )
+      // Erst jetzt steht der Vertrag ausgeführt — und erst jetzt gibt es
+      // etwas zu bestätigen.
+      await bestaetigePerPost(ergebnis.bestellung)
       res.json({ ok: true, credits: ergebnis.credits })
       return
     case 'schon-gebucht':
@@ -900,16 +903,29 @@ adminRouter.post('/bestellungen/:id/einziehen', async (req, res) => {
  * das kann nur er.
  */
 adminRouter.post('/bestellungen/:id/erstatten', async (req, res) => {
+  /*
+   * `trotzdem` setzt die Kulanzregel außer Kraft. Gebraucht wird das für
+   * einen ANSPRUCH, den die Regel nicht kennt: das gesetzliche
+   * Widerrufsrecht gilt auch dann, wenn die Neuro schon ausgegeben sind.
+   * Es kommt aus dem Rumpf, nicht aus der Adresse — ein versehentlicher
+   * Aufruf soll nicht ausreichen.
+   */
+  const trotzdem = req.body?.trotzdem === true
+
   const pruefung = await istErstattbar(Number(req.params.id))
   if (!pruefung.bestellung) {
     res.status(404).json({ error: pruefung.grund })
     return
   }
-  if (!pruefung.moeglich) {
+  if (!pruefung.moeglich && !trotzdem) {
     res.status(409).json({ error: pruefung.grund })
     return
   }
   const bestellung = pruefung.bestellung
+  if (trotzdem && bestellung.status !== 'bezahlt') {
+    res.status(409).json({ error: 'Nur eine gebuchte Bestellung lässt sich erstatten.' })
+    return
+  }
 
   if (bestellung.zahlweg === 'paypal') {
     const zurueck = await erstattePaypalKauf(bestellung)
@@ -919,7 +935,7 @@ adminRouter.post('/bestellungen/:id/erstatten', async (req, res) => {
     }
   }
 
-  const ergebnis = await erstatteBestellung(bestellung.id)
+  const ergebnis = await erstatteBestellung(bestellung.id, trotzdem)
   if (ergebnis.status !== 'erstattet') {
     /*
      * Bei PayPal ist das Geld an dieser Stelle schon zurück. Dass die
@@ -946,6 +962,7 @@ adminRouter.post('/bestellungen/:id/erstatten', async (req, res) => {
     zahlweg: bestellung.zahlweg,
     betragCent: bestellung.betragCent,
     referenz: bestellung.referenz,
+    gegenDieRegel: trotzdem && !pruefung.moeglich,
   })
 })
 

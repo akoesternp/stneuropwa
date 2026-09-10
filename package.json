@@ -17,6 +17,7 @@
   "dependencies": {
     "express": "^5.2.1",
     "mariadb": "^3.5.3",
+    "nodemailer": "^10.0.3",
     "pinia": "^3.0.1",
     "plyr": "^3.8.4",
     "vue": "^3.5.13",
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.13.1",
+    "@types/nodemailer": "^8.0.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "tsx": "^4.23.12",
     "typescript": "~5.7.3",

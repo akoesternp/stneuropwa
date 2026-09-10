@@ -95,8 +95,9 @@ async function logout() {
           <!-- Wohin man sich wendet, wenn etwas klemmt. Ohne gepflegte
                Adresse bleibt die Stelle leer statt ins Nichts zu zeigen. -->
           <a v-if="kontakt.email" :href="`mailto:${kontakt.email}`">{{ kontakt.email }}</a>
-          <a href="#datenschutz">Datenschutz</a>
-          <a href="#impressum">Impressum</a>
+          <RouterLink :to="{ name: 'widerruf' }">Widerruf</RouterLink>
+          <RouterLink :to="{ name: 'datenschutz' }">Datenschutz</RouterLink>
+          <RouterLink :to="{ name: 'impressum' }">Impressum</RouterLink>
         </div>
       </div>
     </footer>
