@@ -131,7 +131,7 @@ portalRouter.get('/zahlung/konfig', (_req, res) => {
 portalRouter.post('/bestellungen', requireUser, async (req, res) => {
   const stufe = creditPaket(String(req.body?.paket ?? ''))
   if (!stufe) {
-    res.status(400).json({ error: 'Unbekanntes Credit-Paket.' })
+    res.status(400).json({ error: 'Unbekanntes Neuro-Paket.' })
     return
   }
 
@@ -292,7 +292,7 @@ function antworteAufKauf(res: Response, ergebnis: KaufErgebnis): void {
       return
     case 'zu-wenig':
       res.status(402).json({
-        error: `Dafür brauchen Sie ${ergebnis.kosten} Credits, Ihr Guthaben beträgt ${ergebnis.credits}.`,
+        error: `Dafür brauchen Sie ${ergebnis.kosten} Neuro, Ihr Guthaben beträgt ${ergebnis.credits}.`,
         kosten: ergebnis.kosten,
         credits: ergebnis.credits,
       })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import NeuroWert from '@/components/NeuroWert.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -18,7 +19,7 @@ import {
 import type { Bestellung, CreditPaket } from '@shared/types'
 
 /**
- * Credits kaufen — Preisliste, Staffel und die zwei Zahlwege.
+ * Neuro kaufen — Preisliste, Staffel und die zwei Zahlwege.
  *
  * Vorkasse und PayPal unterscheiden sich hier nur im letzten Schritt: beide
  * legen dieselbe Bestellung an. Bei Vorkasse bekommt der Käufer danach die
@@ -133,7 +134,7 @@ watch([gewaehlt, zustimmung, paypalZiel], async ([stufe, zugestimmt, ziel]) => {
         if (laufendeBestellung === null) return
         const gelungen = await bestellungen.erfassePaypal(laufendeBestellung)
         if (gelungen) {
-          erfolg.value = `${stufe.credits} Credits gutgeschrieben. Ihr Guthaben: ${auth.user?.credits ?? 0}.`
+          erfolg.value = `${stufe.credits} Neuro gutgeschrieben. Ihr Guthaben: ${auth.user?.credits ?? 0}.`
           gewaehlt.value = null
           zustimmung.value = false
         }
@@ -190,16 +191,16 @@ function reichtFuerPaket(credits: number): number {
   <section class="credits">
     <header class="head">
       <div class="titles">
-        <h1 class="t-h2">Credits</h1>
+        <h1 class="t-h2">Neuro</h1>
         <p class="t-subhead">
-          Mit Credits schalten Sie einzelne Übungen und ganze Pakete frei — dauerhaft, ohne Abo
+          Mit Neuro schalten Sie einzelne Übungen und ganze Pakete frei — dauerhaft, ohne Abo
           und ohne Laufzeit.
         </p>
       </div>
 
       <span v-if="auth.isAuthenticated" class="stand">
-        <span class="stand-zahl">{{ guthaben }}</span>
-        <span class="t-meta">{{ guthaben === 1 ? 'Credit' : 'Credits' }} verfügbar</span>
+        <NeuroWert class="stand-zahl" :betrag="guthaben" />
+        <span class="t-meta">verfügbar</span>
       </span>
     </header>
 
@@ -211,10 +212,8 @@ function reichtFuerPaket(credits: number): number {
 
       <div class="preisliste">
         <div class="posten">
-          <span class="posten-wert">{{ CREDITS_JE_VIDEO }}</span>
-          <span class="posten-name">
-            {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }} je einzelne Übung
-          </span>
+          <NeuroWert class="posten-wert" :betrag="CREDITS_JE_VIDEO" />
+          <span class="posten-name">je einzelne Übung</span>
           <p class="posten-text">
             Einmal freigeschaltet, bleibt die Übung Ihnen — samt Fortschritt und beliebig oft
             abspielbar.
@@ -227,30 +226,30 @@ function reichtFuerPaket(credits: number): number {
           <p class="posten-text">
             Ein Paket kostet {{ Math.round(PAKET_RABATT * 100) }} % dessen, was seine Übungen
             einzeln kosten würden. Beispiel: {{ BEISPIEL_UEBUNGEN }} Übungen einzeln
-            {{ BEISPIEL_UEBUNGEN * CREDITS_JE_VIDEO }} Credits, als Paket
+            {{ BEISPIEL_UEBUNGEN * CREDITS_JE_VIDEO }} Neuro, als Paket
             {{ paketPreis(BEISPIEL_UEBUNGEN) }}.
           </p>
         </div>
 
         <div class="posten">
           <span class="posten-wert">{{ preis(CREDIT_BASISPREIS_CENT) }}</span>
-          <span class="posten-name">je Credit einzeln</span>
+          <span class="posten-name">je Neuro einzeln</span>
           <p class="posten-text">
-            Der Grundpreis. Ab dem kleinen Paket wird jeder Credit günstiger — siehe unten.
+            Der Grundpreis. Ab dem kleinen Paket wird jedes Neuro günstiger — siehe unten.
           </p>
         </div>
       </div>
 
       <p class="fussnote t-meta">
-        Frei zugängliche Übungen bleiben frei: dafür brauchen Sie keine Credits. Alle Preise
+        Frei zugängliche Übungen bleiben frei: dafür brauchen Sie kein Neuro. Alle Preise
         verstehen sich inklusive Umsatzsteuer.
       </p>
     </section>
 
     <!-- ── Staffel ───────────────────────────────────────────────────── -->
     <section class="block">
-      <h2 class="t-h3">Credits kaufen</h2>
-      <p class="einleitung">Je mehr auf einmal, desto günstiger der einzelne Credit.</p>
+      <h2 class="t-h3">Neuro kaufen</h2>
+      <p class="einleitung">Je mehr auf einmal, desto günstiger das einzelne Neuro.</p>
 
       <p v-if="bestellungen.fehler" class="meldung fehler" role="alert">
         {{ bestellungen.fehler }}
@@ -265,11 +264,11 @@ function reichtFuerPaket(credits: number): number {
         >
           <span v-if="rabattProzent(stufe)" class="rabatt">−{{ rabattProzent(stufe) }} %</span>
 
-          <h3 class="t-h3">{{ stufe.credits }} Credits</h3>
+          <h3 class="t-h3"><NeuroWert :betrag="stufe.credits" wort /></h3>
           <p class="stufe-name t-meta">{{ stufe.name }}</p>
 
           <p class="stufe-preis">{{ preis(stufe.preisCent) }}</p>
-          <p class="stufe-einzel t-meta">{{ preis(preisJeCreditCent(stufe)) }} je Credit</p>
+          <p class="stufe-einzel t-meta">{{ preis(preisJeCreditCent(stufe)) }} je Neuro</p>
 
           <p class="stufe-reicht">
             Reicht für {{ stufe.credits }} einzelne Übungen — oder ein Paket mit bis zu
@@ -292,19 +291,19 @@ function reichtFuerPaket(credits: number): number {
     <!-- ── Bezahlen ──────────────────────────────────────────────────── -->
     <section v-if="gewaehlt" class="block bezahlen">
       <h2 class="t-h3">
-        {{ gewaehlt.credits }} Credits für {{ preis(gewaehlt.preisCent) }} — bezahlen
+        {{ gewaehlt.credits }} Neuro für {{ preis(gewaehlt.preisCent) }} — bezahlen
       </h2>
 
       <!--
         Bei digitalen Inhalten muss der Käufer der sofortigen Ausführung
         zustimmen; ohne diesen Haken bliebe das Widerrufsrecht bestehen,
-        obwohl die Credits schon nutzbar wären. Deshalb steht er VOR den
+        obwohl das Guthaben schon nutzbar wäre. Deshalb steht er VOR den
         Zahlwegen und schaltet sie erst frei.
       -->
       <label class="zustimmen">
         <input v-model="zustimmung" type="checkbox" />
         <span>
-          Ich verlange ausdrücklich, dass die Credits sofort nach der Zahlung freigeschaltet
+          Ich verlange ausdrücklich, dass die Neuro sofort nach der Zahlung freigeschaltet
           werden, und weiß, dass mein Widerrufsrecht damit erlischt.
         </span>
       </label>
@@ -318,7 +317,7 @@ function reichtFuerPaket(credits: number): number {
         <div v-if="paypalMoeglich" class="weg">
           <h3 class="weg-titel">PayPal</h3>
           <p class="weg-text">
-            Sofort verfügbar: Die Credits werden Ihrem Konto unmittelbar nach der Zahlung
+            Sofort verfügbar: Die Neuro werden Ihrem Konto unmittelbar nach der Zahlung
             gutgeschrieben.
           </p>
           <div ref="paypalZiel" class="paypal-ziel" />
@@ -394,7 +393,7 @@ function reichtFuerPaket(credits: number): number {
       <ul class="bestellliste">
         <li v-for="eintrag in bestellungen.eigene" :key="eintrag.id" class="bestellung">
           <span class="b-referenz mono">{{ eintrag.referenz }}</span>
-          <span class="b-menge">{{ eintrag.credits }} Credits</span>
+          <span class="b-menge"><NeuroWert :betrag="eintrag.credits" /></span>
           <span class="b-betrag">{{ preis(eintrag.betragCent) }}</span>
           <span class="b-weg t-meta">
             {{ eintrag.zahlweg === 'paypal' ? 'PayPal' : 'Überweisung' }}
@@ -408,7 +407,7 @@ function reichtFuerPaket(credits: number): number {
     <GCard v-if="!auth.isAuthenticated" variant="gradient" class="hinweis-karte">
       <h3 class="t-h3">Konto nötig</h3>
       <p class="hinweis-text">
-        Credits gehören zu einem Konto — ohne Anmeldung gäbe es niemanden, dem sie gehören
+        Neuro gehören zu einem Konto — ohne Anmeldung gäbe es niemanden, dem sie gehören
         könnten. Das Anlegen ist kostenlos, und frei zugängliche Übungen können Sie auch ohne
         Guthaben ansehen.
       </p>
@@ -422,7 +421,7 @@ function reichtFuerPaket(credits: number): number {
       <h3 class="t-h3">Bezahlung derzeit nicht möglich</h3>
       <p class="hinweis-text">
         Es ist gerade kein Zahlweg eingerichtet. Schreiben Sie uns — wir buchen Ihnen die
-        Credits direkt gut.
+        Neuro direkt gut.
       </p>
     </GCard>
   </section>

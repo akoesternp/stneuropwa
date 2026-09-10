@@ -25,7 +25,7 @@ const datum = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 
 const columns: Column[] = [
   { label: 'Referenz', width: 'minmax(150px,auto)' },
   { label: 'Konto', width: 'minmax(180px,1fr)' },
-  { label: 'Credits', align: 'right', width: '80px' },
+  { label: 'Neuro', align: 'right', width: '80px' },
   { label: 'Betrag', align: 'right', width: '90px' },
   { label: 'Zahlweg', width: '110px' },
   { label: 'Angelegt', width: '130px' },
@@ -60,7 +60,7 @@ async function bestaetigen(row: BestellungEintrag) {
   const frage =
     `Zahlungseingang für ${row.referenz} bestätigen?\n\n` +
     `${euro.format(row.betragCent / 100)} von ${row.email}\n` +
-    `${row.credits} Credits werden sofort gutgeschrieben.`
+    `${row.credits} Neuro werden sofort gutgeschrieben.`
   if (!confirm(frage)) return
 
   busy.value = true
@@ -71,7 +71,7 @@ async function bestaetigen(row: BestellungEintrag) {
       `/admin/bestellungen/${row.id}/bestaetigen`,
     )
     notice.value =
-      `${row.referenz} gebucht — ${row.email} hat jetzt ${ergebnis.credits} Credits.`
+      `${row.referenz} gebucht — ${row.email} hat jetzt ${ergebnis.credits} Neuro.`
     await load()
   } catch (cause) {
     error.value = cause instanceof ApiError ? cause.message : 'Buchen fehlgeschlagen.'

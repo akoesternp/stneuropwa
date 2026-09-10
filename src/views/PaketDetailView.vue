@@ -133,7 +133,7 @@ function anteil(videoId: number, dauer: string): number {
           <p class="cta-text">
             {{ offeneAnzahl }} von {{ paket.videos.length }} Übungen dieses Pakets
             {{ offeneAnzahl === 1 ? 'ist' : 'sind' }} für Sie noch gesperrt. Das ganze Paket kostet
-            {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} — einzeln wären es
+            {{ paket.kosten }} Neuro — einzeln wären es
             {{ paket.videos.length * CREDITS_JE_VIDEO }}. Ihr Guthaben beträgt {{ guthaben }}.
           </p>
           <div class="cta-knoepfe">
@@ -143,17 +143,15 @@ function anteil(videoId: number, dauer: string): number {
               :disabled="credits.busy"
               @click="frageOffen = true"
             >
-              Paket für {{ paket.kosten }}
-              {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} freischalten
+              Paket für {{ paket.kosten }} Neuro freischalten
             </GButton>
-            <GButton v-else variant="white" :to="{ name: 'credits' }">Credits aufladen</GButton>
+            <GButton v-else variant="white" :to="{ name: 'credits' }">Neuro aufladen</GButton>
           </div>
         </template>
 
         <template v-else>
           <p class="cta-text">
-            Mit einem Konto lässt sich dieses Paket für
-            {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }} freischalten —
+            Mit einem Konto lässt sich dieses Paket für {{ paket.kosten }} Neuro freischalten —
             einzeln wären es {{ paket.videos.length * CREDITS_JE_VIDEO }}.
           </p>
           <div class="cta-knoepfe">

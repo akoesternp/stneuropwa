@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
+import NeuroWert from '@/components/NeuroWert.vue'
 import GButton from '@/components/ui/GButton.vue'
 
 /**
@@ -79,23 +80,27 @@ function onHintergrundKlick(event: MouseEvent) {
       <dl class="rechnung">
         <div>
           <dt>Kosten</dt>
-          <dd>{{ kosten }} {{ kosten === 1 ? 'Credit' : 'Credits' }}</dd>
+          <dd><NeuroWert :betrag="kosten" wort /></dd>
         </div>
         <div>
           <dt>Guthaben danach</dt>
-          <dd>{{ guthaben }} → {{ Math.max(0, guthaben - kosten) }}</dd>
+          <dd class="verlauf">
+            <NeuroWert :betrag="guthaben" />
+            <span aria-hidden="true">→</span>
+            <NeuroWert :betrag="Math.max(0, guthaben - kosten)" />
+          </dd>
         </div>
       </dl>
 
       <p class="hinweis t-meta">
-        Freigeschaltet bleibt es dauerhaft. Abgebuchte Credits lassen sich nicht zurückholen.
+        Freigeschaltet bleibt es dauerhaft. Abgebuchtes Guthaben lässt sich nicht zurückholen.
       </p>
 
       <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
 
       <footer class="knoepfe">
         <GButton variant="dark" :disabled="busy" @click="emit('bestaetigen')">
-          {{ busy ? 'Wird freigeschaltet …' : `Ja, ${kosten} abbuchen` }}
+          {{ busy ? 'Wird freigeschaltet …' : `Ja, ${kosten} Neuro abbuchen` }}
         </GButton>
         <GButton variant="outline" :disabled="busy" @click="abbrechen">Abbrechen</GButton>
       </footer>
@@ -161,7 +166,14 @@ function onHintergrundKlick(event: MouseEvent) {
 .rechnung dd {
   font-size: var(--fs-secondary);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
+}
+
+/* Vorher → nachher in einer Zeile, die Münze an beiden Zahlen. */
+.verlauf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text);
 }
 
 .hinweis {

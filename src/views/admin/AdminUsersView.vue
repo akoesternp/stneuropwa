@@ -38,7 +38,7 @@ const columns: Column[] = [
   { label: 'E-Mail', width: 'minmax(220px,1fr)' },
   { label: 'Name', width: 'minmax(160px,1fr)' },
   { label: 'Pakete', width: 'minmax(180px,1fr)' },
-  { label: 'Credits', align: 'right', width: '90px' },
+  { label: 'Neuro', align: 'right', width: '90px' },
   { label: 'Status', width: '110px' },
   { width: '210px' },
 ]
@@ -225,7 +225,7 @@ async function remove(row: BenutzerEintrag) {
              freischaltet. Ganze Zahl, nie negativ — das erzwingt `guthaben`. -->
         <GField
           v-model="editing.credits"
-          label="Credits (Guthaben zum Freischalten)"
+          label="Neuro (Guthaben zum Freischalten)"
           type="number"
           compact
         />

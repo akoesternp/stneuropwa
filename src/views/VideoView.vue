@@ -321,10 +321,9 @@ onBeforeUnmount(() => {
 
         <template v-if="auth.isAuthenticated">
           <p class="soon-text">
-            Diese Übung kostet
-            {{ CREDITS_JE_VIDEO }} {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }} — Ihr
-            Guthaben beträgt {{ guthaben }}. Im Paket ist dieselbe Übung günstiger; unter „Gehört
-            zu" steht, zu welchen sie gehört.
+            Diese Übung kostet {{ CREDITS_JE_VIDEO }} Neuro — Ihr Guthaben beträgt
+            {{ guthaben }}. Im Paket ist dieselbe Übung günstiger; unter „Gehört zu" steht, zu
+            welchen sie gehört.
           </p>
           <div class="soon-aktionen">
             <GButton
@@ -333,10 +332,9 @@ onBeforeUnmount(() => {
               :disabled="credits.busy"
               @click="frageOffen = true"
             >
-              Für {{ CREDITS_JE_VIDEO }}
-              {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }} freischalten
+              Für {{ CREDITS_JE_VIDEO }} Neuro freischalten
             </GButton>
-            <GButton v-else variant="dark" :to="{ name: 'credits' }">Credits aufladen</GButton>
+            <GButton v-else variant="dark" :to="{ name: 'credits' }">Neuro aufladen</GButton>
           </div>
         </template>
 
@@ -344,9 +342,7 @@ onBeforeUnmount(() => {
           <p class="soon-text">
             Diese Übung gehört zu einem Paket, das für Sie noch nicht offen ist. Unter „Gehört zu"
             sehen Sie, über welches Paket und welche Zielgruppe sie zugänglich wird — mit einem
-            Konto lässt sie sich für
-            {{ CREDITS_JE_VIDEO }} {{ CREDITS_JE_VIDEO === 1 ? 'Credit' : 'Credits' }}
-            freischalten.
+            Konto lässt sie sich für {{ CREDITS_JE_VIDEO }} Neuro freischalten.
           </p>
           <div class="soon-aktionen">
             <GButton variant="dark" :to="{ name: 'registrieren' }">Konto anlegen</GButton>

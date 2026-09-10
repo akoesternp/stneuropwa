@@ -44,8 +44,7 @@ export const useCreditsStore = defineStore('credits', () => {
       await Promise.all([auth.restore(), videos.reload(), pakete.reload()])
 
       hinweis.value =
-        `Freigeschaltet für ${ergebnis.kosten} ${ergebnis.kosten === 1 ? 'Credit' : 'Credits'}. ` +
-        `Ihr Guthaben: ${ergebnis.credits}.`
+        `Freigeschaltet für ${ergebnis.kosten} Neuro. Ihr Guthaben: ${ergebnis.credits}.`
       return true
     } catch (cause) {
       fehler.value =

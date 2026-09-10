@@ -99,7 +99,9 @@ export async function erzeugePaypalVorgang(bestellung: Bestellung): Promise<stri
           reference_id: bestellung.referenz,
           custom_id: String(bestellung.id),
           invoice_id: bestellung.referenz,
-          description: `${bestellung.credits} Credits für stneuro`,
+          // Steht auf dem PayPal-Beleg des Kunden — deshalb der Name, den er
+          // auch im Portal sieht, nicht der interne.
+          description: `${bestellung.credits} Neuro für stneuro`,
           amount: { currency_code: 'EUR', value: alsBetrag(bestellung.betragCent) },
         },
       ],

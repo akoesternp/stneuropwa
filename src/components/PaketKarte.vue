@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
+import NeuroWert from '@/components/NeuroWert.vue'
 import { useAuthStore } from '@/stores/auth'
 import type { PaketInhalt } from '@shared/types'
 
@@ -84,7 +85,7 @@ const vorschauVideos = computed(() =>
         -->
         <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
         <span v-else-if="paket.kosten" class="marke preis">
-          {{ paket.kosten }} {{ paket.kosten === 1 ? 'Credit' : 'Credits' }}
+          <NeuroWert :betrag="paket.kosten" />
         </span>
         <span v-else-if="auth.isAuthenticated" class="marke zu">Nicht freigeschaltet</span>
       </span>
@@ -173,9 +174,11 @@ const vorschauVideos = computed(() =>
   color: var(--c-text-muted);
 }
 .marke.preis {
+  display: inline-flex;
+  padding: 4px 10px;
   background: var(--c-dark);
   color: var(--c-on-dark);
-  font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .beschreibung {

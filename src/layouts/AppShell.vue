@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter } from 'vue-router'
+import NeuroWert from '@/components/NeuroWert.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -35,7 +36,7 @@ async function logout() {
           <RouterLink :to="{ name: 'home' }" class="nav-item">Übersicht</RouterLink>
           <RouterLink :to="{ name: 'videos' }" class="nav-item">Alle Übungen</RouterLink>
           <!-- Auch für Gäste: was etwas kostet, will man vor dem Konto wissen. -->
-          <RouterLink :to="{ name: 'credits' }" class="nav-item">Credits</RouterLink>
+          <RouterLink :to="{ name: 'credits' }" class="nav-item">Neuro</RouterLink>
         </nav>
 
         <div class="tools">
@@ -61,12 +62,9 @@ async function logout() {
             <RouterLink
               class="guthaben"
               :to="{ name: 'credits' }"
-              title="Guthaben — hier nachkaufen"
+              title="Ihr Guthaben — hier nachkaufen"
             >
-              <span class="guthaben-zahl">{{ auth.user?.credits ?? 0 }}</span>
-              <span class="t-meta">{{
-                (auth.user?.credits ?? 0) === 1 ? 'Credit' : 'Credits'
-              }}</span>
+              <NeuroWert :betrag="auth.user?.credits ?? 0" />
             </RouterLink>
             <GButton variant="outline" size="sm" @click="logout">Abmelden</GButton>
           </template>
@@ -226,25 +224,20 @@ async function logout() {
    auffallen, wenn sie es tut. */
 .guthaben {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
   flex: none;
-  padding: 7px 14px;
+  padding: 8px 14px;
   border-radius: var(--r-nav);
   background: var(--c-dark);
   color: var(--c-on-dark);
+  font-size: var(--fs-secondary);
+  font-weight: 600;
 }
 
 .guthaben:hover {
   color: var(--c-white);
   text-decoration: none;
   filter: brightness(1.25);
-}
-
-.guthaben-zahl {
-  font-size: var(--fs-secondary);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Inhalt / Fußzeile ─────────────────────────────────────────────── */
