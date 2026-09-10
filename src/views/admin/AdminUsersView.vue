@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import GButton from '@/components/ui/GButton.vue'
-import GCard from '@/components/ui/GCard.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import type { BenutzerEintrag, Column, Paket, Video } from '@/types'
@@ -31,6 +30,52 @@ const editing = ref<Editor | null>(null)
 const newPassword = ref('')
 const repeatPassword = ref('')
 const busy = ref(false)
+
+const dialogEl = ref<HTMLDialogElement | null>(null)
+
+/*
+ * Das <dialog>-Element führt seinen offen/zu-Zustand selbst — deshalb wird
+ * es hier an `editing` angeglichen statt umgekehrt. `flush: post` sorgt
+ * dafür, dass das Element schon steht, wenn showModal darauf trifft.
+ *
+ * Der Bildlauf der Seite wird angehalten: sonst scrollt hinter dem Dialog
+ * die Liste, und beim Schließen ist man woanders als vorher.
+ */
+watch(
+  editing,
+  (wert) => {
+    const dialog = dialogEl.value
+    if (!dialog) return
+    if (wert && !dialog.open) dialog.showModal()
+    if (!wert && dialog.open) dialog.close()
+    document.body.style.overflow = wert ? 'hidden' : ''
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => {
+  document.body.style.overflow = ''
+})
+
+/** Zu, aber nicht mitten im Speichern. */
+function schliessen() {
+  if (busy.value) return
+  editing.value = null
+}
+
+/** Escape darf nicht schließen, solange gespeichert wird. */
+function onAbbruch(event: Event) {
+  if (busy.value) event.preventDefault()
+}
+
+function onHintergrundKlick(event: MouseEvent) {
+  if (event.target === dialogEl.value) schliessen()
+}
+
+/* Auch der Weg über die Taste soll den Bearbeitungsstand aufräumen. */
+function onGeschlossen() {
+  if (editing.value) editing.value = null
+}
 const notice = ref<string | null>(null)
 const error = ref<string | null>(null)
 
@@ -197,98 +242,129 @@ async function remove(row: BenutzerEintrag) {
       <GButton @click="startNew">Neuer Nutzer</GButton>
     </header>
 
-    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <!-- Solange der Dialog offen ist, gehören Meldungen hinein, nicht dahinter. -->
+    <p v-if="notice && !editing" class="notice" role="status">{{ notice }}</p>
+    <p v-if="error && !editing" class="error" role="alert">{{ error }}</p>
 
-    <GCard v-if="editing" class="editor">
-      <h3 class="t-h3">{{ isNew ? 'Neuer Nutzer' : `Nutzer ${editing.email}` }}</h3>
+    <!--
+      Bearbeitet wird im Dialog, nicht in einem Kasten über der Liste.
+      Anderswo im Backend ist das längst so; hier fiel es zuletzt auf, weil
+      der Kasten die Tabelle nach unten schob und man nach dem Klick erst
+      wieder suchen musste, wo man war.
+    -->
+    <dialog
+      ref="dialogEl"
+      class="dialog"
+      @cancel="onAbbruch"
+      @close="onGeschlossen"
+      @click="onHintergrundKlick"
+    >
+      <div v-if="editing" class="dialog-inner">
+        <header class="dialog-kopf">
+          <h3 class="t-h3">{{ isNew ? 'Neuer Nutzer' : `Nutzer ${editing.email}` }}</h3>
+          <button
+            type="button"
+            class="schliessen"
+            :disabled="busy"
+            aria-label="Schließen"
+            @click="schliessen"
+          >
+            ×
+          </button>
+        </header>
 
-      <div class="fields">
-        <GField v-model="editing.email" label="E-Mail-Adresse" type="email" compact />
-        <GField v-model="editing.name" label="Name" compact />
-        <GField
-          v-model="newPassword"
-          label="Neues Passwort"
-          type="password"
-          autocomplete="new-password"
-          compact
-          :placeholder="isNew ? 'Pflicht' : 'leer lassen = unverändert'"
-        />
-        <GField
-          v-model="repeatPassword"
-          label="Passwort wiederholen"
-          type="password"
-          autocomplete="new-password"
-          compact
-        />
-        <!-- Guthaben, mit dem sich der Nutzer selbst Übungen und Pakete
-             freischaltet. Ganze Zahl, nie negativ — das erzwingt `guthaben`. -->
-        <GField
-          v-model="editing.credits"
-          label="Neuro (Guthaben zum Freischalten)"
-          type="number"
-          compact
-        />
-      </div>
+        <div class="dialog-inhalt">
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
 
-      <div class="assign">
-        <span class="t-eyebrow">Pakete</span>
-        <p v-if="!pakete.length" class="hint">
-          Es gibt noch keine Pakete — zuerst unter „Pakete" anlegen.
-        </p>
-        <div v-else class="paket-list">
-          <label v-for="paket in pakete" :key="paket.id" class="paket">
-            <input
-              type="checkbox"
-              :checked="editing.paketIds.includes(paket.id)"
-              @change="togglePaket(paket.id)"
+          <div class="fields">
+            <GField v-model="editing.email" label="E-Mail-Adresse" type="email" compact />
+            <GField v-model="editing.name" label="Name" compact />
+            <GField
+              v-model="newPassword"
+              label="Neues Passwort"
+              type="password"
+              autocomplete="new-password"
+              compact
+              :placeholder="isNew ? 'Pflicht' : 'leer lassen = unverändert'"
             />
-            {{ paket.name }}
-            <span v-if="!paket.aktiv" class="t-meta">(inaktiv)</span>
-          </label>
-        </div>
-      </div>
-
-      <!--
-        Einzelfreischaltungen wirken ZUSÄTZLICH zu den Paketen — für den Fall,
-        dass jemand genau ein Video bekommen soll, ohne das ganze Paket.
-        Öffentliche Videos stehen nicht zur Wahl, die sieht ohnehin jeder.
-      -->
-      <div class="assign">
-        <span class="t-eyebrow">Einzelne Videos (zusätzlich zu den Paketen)</span>
-        <p v-if="!paketVideos.length" class="hint">
-          Es gibt noch keine Videos, die freigeschaltet werden müssten — öffentliche sieht
-          ohnehin jeder.
-        </p>
-        <div v-else class="paket-list">
-          <label v-for="video in paketVideos" :key="video.id" class="paket">
-            <input
-              type="checkbox"
-              :checked="editing.videoIds.includes(video.id)"
-              @change="toggleVideo(video.id)"
+            <GField
+              v-model="repeatPassword"
+              label="Passwort wiederholen"
+              type="password"
+              autocomplete="new-password"
+              compact
             />
-            {{ video.titel }}
-            <span class="t-meta">{{ video.paketNamen.join(', ') || 'ohne Paket' }}</span>
-            <!--
-              Ein inaktives Video bleibt trotz Freischaltung unsichtbar. Ohne
-              diesen Hinweis sucht man den Fehler bei der Zuweisung statt beim
-              Video.
-            -->
-            <span v-if="!video.aktiv" class="t-meta inaktiv">inaktiv</span>
+            <!-- Guthaben, mit dem sich der Nutzer selbst Übungen und Pakete
+                 freischaltet. Ganze Zahl, nie negativ — das erzwingt `guthaben`. -->
+            <GField
+              v-model="editing.credits"
+              label="Neuro (Guthaben zum Freischalten)"
+              type="number"
+              compact
+            />
+          </div>
+
+          <div class="assign">
+            <span class="t-eyebrow">Pakete</span>
+            <p v-if="!pakete.length" class="hint">
+              Es gibt noch keine Pakete — zuerst unter „Pakete" anlegen.
+            </p>
+            <div v-else class="paket-list">
+              <label v-for="paket in pakete" :key="paket.id" class="paket">
+                <input
+                  type="checkbox"
+                  :checked="editing.paketIds.includes(paket.id)"
+                  @change="togglePaket(paket.id)"
+                />
+                {{ paket.name }}
+                <span v-if="!paket.aktiv" class="t-meta">(inaktiv)</span>
+              </label>
+            </div>
+          </div>
+
+          <!--
+            Einzelfreischaltungen wirken ZUSÄTZLICH zu den Paketen — für den Fall,
+            dass jemand genau ein Video bekommen soll, ohne das ganze Paket.
+            Öffentliche Videos stehen nicht zur Wahl, die sieht ohnehin jeder.
+          -->
+          <div class="assign">
+            <span class="t-eyebrow">Einzelne Videos (zusätzlich zu den Paketen)</span>
+            <p v-if="!paketVideos.length" class="hint">
+              Es gibt noch keine Videos, die freigeschaltet werden müssten — öffentliche sieht
+              ohnehin jeder.
+            </p>
+            <div v-else class="paket-list">
+              <label v-for="video in paketVideos" :key="video.id" class="paket">
+                <input
+                  type="checkbox"
+                  :checked="editing.videoIds.includes(video.id)"
+                  @change="toggleVideo(video.id)"
+                />
+                {{ video.titel }}
+                <span class="t-meta">{{ video.paketNamen.join(', ') || 'ohne Paket' }}</span>
+                <!--
+                  Ein inaktives Video bleibt trotz Freischaltung unsichtbar. Ohne
+                  diesen Hinweis sucht man den Fehler bei der Zuweisung statt beim
+                  Video.
+                -->
+                <span v-if="!video.aktiv" class="t-meta inaktiv">inaktiv</span>
+              </label>
+            </div>
+          </div>
+
+          <label class="aktiv">
+            <input v-model="editing.aktiv" type="checkbox" />
+            Zugang aktiv — ohne Haken ist die Anmeldung gesperrt
           </label>
+
         </div>
-      </div>
 
-      <label class="aktiv">
-        <input v-model="editing.aktiv" type="checkbox" />
-        Zugang aktiv — ohne Haken ist die Anmeldung gesperrt
-      </label>
-
-      <div class="editor-actions">
-        <GButton :disabled="busy" @click="save">Speichern</GButton>
-        <GButton variant="outline" :disabled="busy" @click="editing = null">Abbrechen</GButton>
+        <footer class="dialog-fuss">
+          <GButton :disabled="busy" @click="save">Speichern</GButton>
+          <GButton variant="outline" :disabled="busy" @click="schliessen">Abbrechen</GButton>
+        </footer>
       </div>
-    </GCard>
+    </dialog>
 
     <DataTable :columns="columns" :rows="rows" row-key="id" min-width="900px">
       <template #row="{ row }">
@@ -341,10 +417,70 @@ async function remove(row: BenutzerEintrag) {
   color: var(--c-red);
 }
 
-.editor {
+.dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--c-white);
+  color: var(--c-text);
+  overflow: hidden;
+}
+
+.dialog::backdrop {
+  background: rgba(10, 12, 20, 0.55);
+}
+
+.dialog-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+}
+
+.dialog-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px var(--card-pad);
+  border-bottom: 1px solid var(--c-hairline);
+}
+
+.dialog-inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--card-pad);
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.dialog-fuss {
+  display: flex;
+  gap: 12px;
+  padding: 16px var(--card-pad);
+  border-top: 1px solid var(--c-hairline);
+  background: var(--c-surface-2);
+}
+
+.schliessen {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.schliessen:hover:not(:disabled) {
+  background: var(--c-dark);
+  color: var(--c-white);
 }
 
 .fields {
@@ -394,10 +530,6 @@ async function remove(row: BenutzerEintrag) {
   accent-color: var(--c-action);
 }
 
-.editor-actions {
-  display: flex;
-  gap: 12px;
-}
 
 .mail {
   font-size: var(--fs-body);

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import NeuroWert from '@/components/NeuroWert.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import GButton from '@/components/ui/GButton.vue'
-import GCard from '@/components/ui/GCard.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import type { Aktion, Column } from '@/types'
@@ -44,6 +43,52 @@ interface Editor {
 }
 
 const editing = ref<Editor | null>(null)
+
+const dialogEl = ref<HTMLDialogElement | null>(null)
+
+/*
+ * Das <dialog>-Element führt seinen offen/zu-Zustand selbst — deshalb wird
+ * es hier an `editing` angeglichen statt umgekehrt. `flush: post` sorgt
+ * dafür, dass das Element schon steht, wenn showModal darauf trifft.
+ *
+ * Der Bildlauf der Seite wird angehalten: sonst scrollt hinter dem Dialog
+ * die Liste, und beim Schließen ist man woanders als vorher.
+ */
+watch(
+  editing,
+  (wert) => {
+    const dialog = dialogEl.value
+    if (!dialog) return
+    if (wert && !dialog.open) dialog.showModal()
+    if (!wert && dialog.open) dialog.close()
+    document.body.style.overflow = wert ? 'hidden' : ''
+  },
+  { flush: 'post' },
+)
+
+onBeforeUnmount(() => {
+  document.body.style.overflow = ''
+})
+
+/** Zu, aber nicht mitten im Speichern. */
+function schliessen() {
+  if (busy.value) return
+  editing.value = null
+}
+
+/** Escape darf nicht schließen, solange gespeichert wird. */
+function onAbbruch(event: Event) {
+  if (busy.value) event.preventDefault()
+}
+
+function onHintergrundKlick(event: MouseEvent) {
+  if (event.target === dialogEl.value) schliessen()
+}
+
+/* Auch der Weg über die Escape-Taste soll den Bearbeitungsstand aufräumen. */
+function onGeschlossen() {
+  if (editing.value) editing.value = null
+}
 const isNew = computed(() => editing.value !== null && editing.value.id === null)
 
 /**
@@ -192,37 +237,67 @@ async function remove(row: Aktion) {
       <GButton @click="startNew">Neue Aktion</GButton>
     </header>
 
-    <p v-if="notice" class="notice" role="status">{{ notice }}</p>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <!-- Solange der Dialog offen ist, gehören Meldungen hinein, nicht dahinter. -->
+    <p v-if="notice && !editing" class="notice" role="status">{{ notice }}</p>
+    <p v-if="error && !editing" class="error" role="alert">{{ error }}</p>
 
-    <GCard v-if="editing" class="editor">
-      <h3 class="t-h3">{{ isNew ? 'Neue Aktion' : `Aktion ${editing.name}` }}</h3>
+    <!--
+      Bearbeitet wird im Dialog, nicht in einem Kasten über der Liste: der
+      schob die Tabelle nach unten, und nach dem Klick musste man erst
+      wieder suchen, wo man war.
+    -->
+    <dialog
+      ref="dialogEl"
+      class="dialog"
+      @cancel="onAbbruch"
+      @close="onGeschlossen"
+      @click="onHintergrundKlick"
+    >
+      <div v-if="editing" class="dialog-inner">
+        <header class="dialog-kopf">
+          <h3 class="t-h3">{{ isNew ? 'Neue Aktion' : `Aktion ${editing.name}` }}</h3>
+          <button
+            type="button"
+            class="schliessen"
+            :disabled="busy"
+            aria-label="Schließen"
+            @click="schliessen"
+          >
+            ×
+          </button>
+        </header>
 
-      <div class="fields">
-        <GField v-model="editing.name" label="Name" compact />
-        <GField v-model="editing.credits" label="Neuro je Registrierung" type="number" compact />
-        <GField v-model="editing.beginn" label="Beginn" type="datetime-local" compact />
-        <GField v-model="editing.ende" label="Ende (ausschließend)" type="datetime-local" compact />
-        <!-- 0 heißt unbegrenzt. Eine Aktion ohne Deckel ist ein offener
-             Scheck für jeden, der den Link weitergibt. -->
-        <GField
-          v-model="editing.maxEinloesungen"
-          label="Höchstens so oft (0 = unbegrenzt)"
-          type="number"
-          compact
-        />
+        <div class="dialog-inhalt">
+          <p v-if="error" class="error" role="alert">{{ error }}</p>
+
+          <div class="fields">
+            <GField v-model="editing.name" label="Name" compact />
+            <GField v-model="editing.credits" label="Neuro je Registrierung" type="number" compact />
+            <GField v-model="editing.beginn" label="Beginn" type="datetime-local" compact />
+            <GField v-model="editing.ende" label="Ende (ausschließend)" type="datetime-local" compact />
+            <!-- 0 heißt unbegrenzt. Eine Aktion ohne Deckel ist ein offener
+                 Scheck für jeden, der den Link weitergibt. -->
+            <GField
+              v-model="editing.maxEinloesungen"
+              label="Höchstens so oft (0 = unbegrenzt)"
+              type="number"
+              compact
+            />
+          </div>
+
+          <label class="aktiv">
+            <input v-model="editing.aktiv" type="checkbox" />
+            Aktion aktiv — ohne Haken greift sie auch im Zeitraum nicht
+          </label>
+
+        </div>
+
+        <footer class="dialog-fuss">
+          <GButton :disabled="busy" @click="save">Speichern</GButton>
+          <GButton variant="outline" :disabled="busy" @click="schliessen">Abbrechen</GButton>
+        </footer>
       </div>
-
-      <label class="aktiv">
-        <input v-model="editing.aktiv" type="checkbox" />
-        Aktion aktiv — ohne Haken greift sie auch im Zeitraum nicht
-      </label>
-
-      <div class="editor-actions">
-        <GButton :disabled="busy" @click="save">Speichern</GButton>
-        <GButton variant="outline" :disabled="busy" @click="editing = null">Abbrechen</GButton>
-      </div>
-    </GCard>
+    </dialog>
 
     <DataTable :columns="columns" :rows="rows" row-key="id" min-width="1000px">
       <template #row="{ row }">
@@ -283,10 +358,70 @@ async function remove(row: Aktion) {
   color: var(--c-red);
 }
 
-.editor {
+.dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--c-white);
+  color: var(--c-text);
+  overflow: hidden;
+}
+
+.dialog::backdrop {
+  background: rgba(10, 12, 20, 0.55);
+}
+
+.dialog-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+}
+
+.dialog-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px var(--card-pad);
+  border-bottom: 1px solid var(--c-hairline);
+}
+
+.dialog-inhalt {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--card-pad);
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.dialog-fuss {
+  display: flex;
+  gap: 12px;
+  padding: 16px var(--card-pad);
+  border-top: 1px solid var(--c-hairline);
+  background: var(--c-surface-2);
+}
+
+.schliessen {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.schliessen:hover:not(:disabled) {
+  background: var(--c-dark);
+  color: var(--c-white);
 }
 
 .fields {
@@ -309,10 +444,6 @@ async function remove(row: Aktion) {
   accent-color: var(--c-action);
 }
 
-.editor-actions {
-  display: flex;
-  gap: 12px;
-}
 
 .name {
   font-size: var(--fs-secondary);
