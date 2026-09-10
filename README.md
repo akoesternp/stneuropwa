@@ -60,6 +60,16 @@ Einen Nutzer gibt es auch per CLI:
 npm run benutzer:anlegen -- max@example.de geheimes-passwort "Max Muster"
 ```
 
+Zum Ausprobieren ohne echtes Material gibt es Platzhaltervideos — ein
+Testbild mit Titel, Laufbalken und Uhr, kodiert ohne ffmpeg:
+
+```powershell
+npm run platzhalter:video -- "Erste Schritte" server/videos/erste-schritte.mp4 2
+```
+
+Die Datei danach im Backend bei der Übung auswählen; die Laufzeit liest der
+Server selbst aus dem Dateikopf.
+
 ## Bauen und Betrieb
 
 ```powershell

@@ -201,15 +201,30 @@ const MINDEST_POSITION_S = 5
 /** So kurz vor dem Ende gilt die Übung als durch; dann wieder von vorn. */
 const REST_S = 10
 
+/*
+ * Bei kurzen Übungen wären feste Sekundenmarken das halbe Video: fünf
+ * Sekunden Anlauf und zehn Sekunden Abspann lassen von einer halben Minute
+ * nichts übrig, und es würde nie fortgesetzt. Deshalb gilt bei kurzen
+ * Aufnahmen der Anteil an der Laufzeit, bei langen die feste Marke.
+ */
+const MINDEST_ANTEIL = 0.05
+const REST_ANTEIL = 0.1
+
+function fortsetzMarken(dauer: number) {
+  return {
+    ab: Math.min(MINDEST_POSITION_S, dauer * MINDEST_ANTEIL),
+    bis: dauer - Math.min(REST_S, dauer * REST_ANTEIL),
+  }
+}
+
 let letzteMeldung = 0
 
 /*
- * Fortsetzen braucht zweierlei: die Metadaten des Videos und den gespeicherten
+ * Fortsetzen braucht zweierlei: die Laufzeit des Videos und den gespeicherten
  * Stand. Beide treffen unabhängig voneinander ein — je nachdem, ob die Seite
  * direkt aufgerufen oder von der Übersicht aus betreten wurde. Deshalb wird
  * nach jedem der beiden Ereignisse geprüft, ob nun beides da ist.
  */
-let metadatenDa = false
 let fortgesetzt = false
 
 const videoId = computed(() => Number(route.params.id))
@@ -222,40 +237,62 @@ function melde(position: number, fertig: boolean) {
   void fortschritt.melden(videoId.value, position, fertig)
 }
 
+/*
+ * Meldungen aus dem laufenden Abspielen dürfen erst zählen, wenn über das
+ * Fortsetzen entschieden ist. Sonst überschreibt der erste Zeitsprung — der
+ * steht auf null — genau die Stelle, an die gleich gesprungen werden soll,
+ * und der gespeicherte Stand ist weg, bevor er benutzt wurde.
+ */
+function meldeAusLauf(position: number, fertig: boolean) {
+  if (!fortgesetzt) return
+  melde(position, fertig)
+}
+
 /** Haken von Hand — man macht eine Übung auch mal, ohne das Video auszuspielen. */
 function erledigtUmschalten() {
   melde(erledigt.value ? (player?.currentTime ?? 0) : 0, !erledigt.value)
 }
 
-/** Springt einmalig an die gespeicherte Stelle, sobald beides vorliegt. */
+/** Springt einmalig an die gespeicherte Stelle, sobald die Laufzeit steht. */
 function versucheFortsetzen(instanz: Plyr) {
-  if (fortgesetzt || !metadatenDa || !fortschritt.loaded) return
+  if (fortgesetzt || !fortschritt.loaded) return
+
+  /*
+   * Nicht am Ereignis loadedmetadata festmachen: Plyr hängt sich an ein
+   * bestehendes Element, dessen Metadaten aus dem Zwischenspeicher schon da
+   * sein können — dann ist das Ereignis längst durch und käme nie wieder.
+   * Und solange Plyr keine Laufzeit kennt, verwirft es jede Sprungmarke
+   * stillschweigend. Beides beantwortet dieselbe Frage: steht die Laufzeit?
+   */
+  const dauer = instanz.duration || 0
+  if (!Number.isFinite(dauer) || dauer <= 0) return
   fortgesetzt = true
 
   const position = stand.value?.position ?? 0
-  const dauer = instanz.duration || 0
+  const { ab, bis } = fortsetzMarken(dauer)
 
   // Nicht wieder aufnehmen, wenn es fast schon durch war — sonst landet man
   // im Abspann und muss von Hand zurückspulen.
-  if (position > MINDEST_POSITION_S && (!dauer || position < dauer - REST_S)) {
-    instanz.currentTime = position
-  }
+  if (position > ab && position < bis) instanz.currentTime = position
 }
 
 function hefteFortschrittAn(instanz: Plyr) {
   if (!auth.isAuthenticated) return
 
-  instanz.on('loadedmetadata', () => {
-    metadatenDa = true
-    versucheFortsetzen(instanz)
-  })
+  // Mehrere Wege zur selben Antwort, weil je nach Zwischenspeicher mal der
+  // eine, mal der andere zuerst eintrifft — und der erste, der die Laufzeit
+  // mitbringt, erledigt es für alle.
+  for (const ereignis of ['ready', 'loadedmetadata', 'loadeddata', 'canplay', 'playing'] as const) {
+    instanz.on(ereignis, () => versucheFortsetzen(instanz))
+  }
+  versucheFortsetzen(instanz)
 
   instanz.on('timeupdate', () => {
     if (Date.now() - letzteMeldung < MELDE_ABSTAND_MS) return
-    melde(instanz.currentTime, erledigt.value)
+    meldeAusLauf(instanz.currentTime, erledigt.value)
   })
 
-  instanz.on('pause', () => melde(instanz.currentTime, erledigt.value))
+  instanz.on('pause', () => meldeAusLauf(instanz.currentTime, erledigt.value))
   // Durchgelaufen: als erledigt merken und beim nächsten Mal von vorn.
   instanz.on('ended', () => melde(0, true))
 }
@@ -279,7 +316,6 @@ watch(
   videoEl,
   (element) => {
     loesePlayer()
-    metadatenDa = false
     fortgesetzt = false
     if (!element) return
     player = new Plyr(element, OPTIONEN)
@@ -298,7 +334,7 @@ watch(
 onBeforeUnmount(() => {
   // Beim Verlassen der Seite den Stand noch mitnehmen — der Zehn-Sekunden-Takt
   // hätte ihn sonst unter Umständen noch nicht gemeldet.
-  if (player && auth.isAuthenticated && !player.ended) melde(player.currentTime, erledigt.value)
+  if (player && !player.ended) meldeAusLauf(player.currentTime, erledigt.value)
   loesePlayer()
 })
 </script>

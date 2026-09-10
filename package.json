@@ -11,7 +11,8 @@
     "start": "node server-dist/server/index.js",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "benutzer:anlegen": "tsx tools/benutzer-anlegen.ts"
+    "benutzer:anlegen": "tsx tools/benutzer-anlegen.ts",
+    "platzhalter:video": "node tools/platzhalter-video.mjs"
   },
   "dependencies": {
     "express": "^5.2.1",
