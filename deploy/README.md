@@ -3,14 +3,116 @@
 Für `stneuro.np-dev.de` mit systemd und Apache — nach demselben Muster wie das
 Händlerportal auf diesem Server. Alle Befehle als `root` bzw. mit `sudo`.
 
-**Voraussetzung:** Node **20.19+** oder **22.12+** (Vite 6 verlangt das),
-Apache mit `mod_proxy`, git, MariaDB (läuft bereits fürs Händlerportal).
+**Ports:** Das Händlerportal belegt 3000 — stneuro nimmt **3001**.
+
+---
+
+## Was der Server braucht
+
+### Systempakete
+
+| Was | Wofür | Anmerkung |
+|---|---|---|
+| **Node 20.19+ oder 22.12+** | Der Dienst selbst und das Bauen | Siehe unten — Debians Paket ist meist zu alt |
+| **npm** | Kommt mit Node | |
+| **MariaDB** | Konten, Pakete, Videos, Sitzungen, Bestellungen | Läuft bereits fürs Händlerportal; stneuro bekommt nur eine eigene Datenbank |
+| **Apache 2.4** | Reverse Proxy und TLS | Module siehe unten |
+| **git** | Holt und aktualisiert die Anwendung | |
+| **certbot** | Zertifikat für die Subdomain | `python3-certbot-apache` |
+| **rsync / openssh** | Videodateien hochladen | Meist ohnehin da |
+
+**Nicht** gebraucht wird **ffmpeg** — und das ist Absicht, obwohl es um ein
+Videoportal geht. Die Laufzeit liest der Dienst selbst aus dem Dateikopf
+(`moov/mvhd`, ein paar hundert Byte), und das Vorschaubild erzeugt der
+Browser der Verwaltung. Ein Decoder auf dem Server wäre eine große
+Abhängigkeit für zwei Kleinigkeiten.
+
+### Node einrichten
 
 ```bash
 node -v      # muss v20.19+ oder v22.12+ sein
 ```
 
-**Ports:** Das Händlerportal belegt 3000 — stneuro nimmt **3001**.
+In `package.json` steht `engines: node >= 20.19`. Die Untergrenze kommt von
+Vite 6 und den Treibern (mariadb 3.5 und nodemailer 10 verlangen ≥ 20).
+**Node 21 fällt heraus** — Vite schließt es ausdrücklich aus. Es muss also
+ein *gerades* Hauptversionsband sein: 20, 22 oder neuer.
+
+Debian liefert je nach Ausgabe eine ältere Fassung. Prüfen, und wenn sie zu
+alt ist, über NodeSource nachziehen:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+```
+
+Wer kein Skript aus dem Netz in eine Shell leiten will — verständlich —,
+nimmt `nvm` unter dem Benutzer `stneuro` oder ein Backport-Paket. Der
+systemd-Dienst ruft `/usr/bin/node` auf; bei einem anderen Pfad die Zeile
+`ExecStart` in `deploy/stneuro.service` anpassen.
+
+### Apache-Module
+
+```bash
+a2enmod ssl rewrite headers proxy proxy_http deflate
+```
+
+Alle sechs sind nötig, keines ist Beiwerk:
+
+| Modul | Wofür im vHost |
+|---|---|
+| `ssl` | `SSLEngine` — der ganze 443er vHost |
+| `rewrite` | Weiterleitung von Port 80 auf HTTPS |
+| `headers` | `X-Forwarded-Proto` (sonst fehlt dem Cookie `Secure`) und die Zwischenspeicher-Regel für `sw.js` |
+| `proxy`, `proxy_http` | Durchreichen an 127.0.0.1:3001 |
+| `deflate` | Kompression von HTML, JSON und CSS |
+
+Fehlt eines, scheitert schon `apachectl configtest` mit „Invalid command" —
+und nach einem Reload startet Apache gar nicht mehr.
+
+### npm-Pakete
+
+`npm ci` holt alles; kümmern muss man sich um nichts davon einzeln. Der
+Unterschied ist trotzdem gut zu wissen:
+
+**Der laufende Dienst braucht genau drei** — mehr lädt `server-dist` nicht:
+
+| Paket | Wofür |
+|---|---|
+| `express` | HTTP-Server und Routen |
+| `mariadb` | Datenbanktreiber |
+| `nodemailer` | Bestellbestätigung per SMTP |
+
+Alles andere wird nur zum **Bauen** gebraucht und landet fertig in `dist/`:
+`vue`, `vue-router`, `pinia` und `plyr` für die Oberfläche, dazu `vite`,
+`vue-tsc`, `typescript`, `@vitejs/plugin-vue`, `vite-plugin-pwa` und die
+Typdefinitionen. Nach dem Bauen ließe sich mit `npm prune --omit=dev`
+aufräumen — nötig ist es nicht, und beim nächsten Deploy müsste ohnehin
+wieder `npm ci` laufen.
+
+### Platz und Speicher
+
+| | Größe |
+|---|---|
+| `node_modules` | ~120 MB (rund 300 Pakete) |
+| `dist` (Oberfläche) | ~1 MB |
+| `server-dist` | wenige hundert kB |
+| **Videodateien** | so viel, wie du hineinlegst — bis ~1 TB eingeplant |
+
+Die Anwendung selbst ist also winzig; der Platz geht für die Videos drauf.
+Deshalb liegt `VIDEO_DIR` außerhalb des Anwendungsverzeichnisses und gehört
+auf eine ausreichend große Platte.
+
+Beim **Bauen** braucht `vue-tsc` kurzzeitig spürbar Arbeitsspeicher. Auf
+einer kleinen Maschine kann das mit „JavaScript heap out of memory"
+abbrechen. Dann entweder mehr geben:
+
+```bash
+sudo -u stneuro NODE_OPTIONS=--max-old-space-size=2048 npm run build
+```
+
+oder auf dem Arbeitsrechner bauen und nur `dist/` und `server-dist/`
+hinüberspielen. Der laufende Dienst selbst ist genügsam.
 
 ---
 
