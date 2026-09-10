@@ -67,6 +67,7 @@ function waehle(stufe: CreditPaket): void {
   zustimmung.value = false
   erfolg.value = null
   ueberweisung.value = null
+  gemeldet.value = false
   paypalFehler.value = null
   bestellungen.zuruecksetzen()
 }
@@ -74,6 +75,7 @@ function waehle(stufe: CreditPaket): void {
 function abbrechen(): void {
   gewaehlt.value = null
   ueberweisung.value = null
+  gemeldet.value = false
   zustimmung.value = false
   loesePaypal()
 }
@@ -85,7 +87,10 @@ async function bestelleVorkasse(): Promise<void> {
   if (!stufe || !zustimmung.value) return
 
   const ergebnis = await bestellungen.anlegen(stufe.id, 'vorkasse')
-  if (ergebnis) ueberweisung.value = ergebnis.bestellung
+  if (!ergebnis) return
+  ueberweisung.value = ergebnis.bestellung
+  // Eine wiederverwendete Bestellung kann schon bestätigt sein.
+  gemeldet.value = ergebnis.bestellung.status !== 'entwurf'
 }
 
 /* ── PayPal ──────────────────────────────────────────────────────────── */
@@ -170,6 +175,10 @@ watch([gewaehlt, zustimmung, paypalZiel], async ([stufe, zugestimmt, ziel]) => {
 
 /* ── Eigene Bestellungen ─────────────────────────────────────────────── */
 
+/*
+ * Entwürfe zählen hier nicht mit: sie warten nicht auf den Betreiber,
+ * sondern auf den Käufer selbst.
+ */
 const offeneBestellungen = computed(() =>
   bestellungen.eigene.filter((eintrag) => eintrag.status === 'offen'),
 )
@@ -177,7 +186,25 @@ const offeneBestellungen = computed(() =>
 function statusText(eintrag: Bestellung): string {
   if (eintrag.status === 'bezahlt') return 'gutgeschrieben'
   if (eintrag.status === 'storniert') return 'storniert'
+  if (eintrag.status === 'abgelaufen') return 'abgelaufen'
+  if (eintrag.status === 'entwurf') {
+    return eintrag.zahlweg === 'vorkasse' ? 'noch nicht überwiesen' : 'nicht abgeschlossen'
+  }
   return eintrag.zahlweg === 'vorkasse' ? 'wartet auf Zahlungseingang' : 'nicht abgeschlossen'
+}
+
+/**
+ * Der Käufer meldet die Überweisung.
+ *
+ * Erst damit wird aus dem Entwurf eine Bestellung, die auf Geld wartet.
+ * Der Schritt ist kein Formalismus: ohne ihn stünde beim Betreiber jeder
+ * in der Liste, der sich die Bankdaten nur angesehen hat.
+ */
+const gemeldet = ref(false)
+
+async function meldeUeberweisung(): Promise<void> {
+  if (!ueberweisung.value) return
+  if (await bestellungen.ueberwiesen(ueberweisung.value.id)) gemeldet.value = true
 }
 
 /**
@@ -379,6 +406,23 @@ function reichtFuerPaket(credits: number): number {
             <p class="weg-text">
               Freigeschaltet wird {{ bestellungen.konfig?.vorkasse.dauer }}. Die Bestellung
               finden Sie unten wieder.
+            </p>
+
+            <!--
+              Sagt uns, dass das Geld unterwegs ist. Ohne diesen Schritt sähe
+              jede angezeigte Bankverbindung aus wie eine Bestellung.
+            -->
+            <div v-if="ueberweisung.status === 'entwurf' && !gemeldet" class="gemeldet-zeile">
+              <GButton variant="dark" :disabled="bestellungen.busy" @click="meldeUeberweisung">
+                {{ bestellungen.busy ? 'Wird gemeldet …' : 'Überweisung ist raus' }}
+              </GButton>
+              <span class="t-meta">
+                Damit wissen wir, dass wir auf Ihr Geld warten sollen.
+              </span>
+            </div>
+
+            <p v-else class="weg-text erledigt">
+              Notiert — wir halten nach Ihrem Verwendungszweck Ausschau.
             </p>
           </div>
         </div>
@@ -647,6 +691,18 @@ function reichtFuerPaket(credits: number): number {
 
 .testbetrieb {
   color: var(--c-action);
+}
+
+.gemeldet-zeile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.erledigt {
+  color: var(--c-ok, var(--c-text));
+  font-weight: 500;
 }
 
 /* ── Überweisungsdaten ──────────────────────────────────────────────── */

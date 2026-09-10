@@ -373,6 +373,7 @@ async function createSchema(): Promise<void> {
         status VARCHAR(20) NOT NULL DEFAULT 'offen',
         anbieter_referenz VARCHAR(64) NULL DEFAULT NULL,
         angelegt_am BIGINT NOT NULL DEFAULT 0,
+        bestaetigt_am BIGINT NULL DEFAULT NULL,
         bezahlt_am BIGINT NULL DEFAULT NULL,
         PRIMARY KEY (id),
         UNIQUE KEY uq_referenz (referenz),
@@ -381,6 +382,16 @@ async function createSchema(): Promise<void> {
         KEY ix_status (status, angelegt_am)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
+
+    /*
+     * Nachgetragen für Installationen, die es schon vor dem Entwurfsstand
+     * gab. Alte Bestellungen bleiben ohne Zeitpunkt — bestätigt hat sie
+     * damals niemand, es gab den Schritt ja noch nicht.
+     */
+    const bestellSpalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM bestellungen`)
+    if (!bestellSpalten.some((spalte) => spalte.Field === 'bestaetigt_am')) {
+      await conn.query(`ALTER TABLE bestellungen ADD COLUMN bestaetigt_am BIGINT NULL DEFAULT NULL`)
+    }
 
     /*
      * Aktionszeiträume fürs Startguthaben.
@@ -1443,6 +1454,7 @@ function toBestellung(row: Record<string, unknown>): Bestellung {
     zahlweg: String(row.zahlweg) as Zahlweg,
     status: String(row.status) as BestellStatus,
     angelegtAm: Number(row.angelegt_am) || 0,
+    bestaetigtAm: row.bestaetigt_am == null ? null : Number(row.bestaetigt_am),
     bezahltAm: row.bezahlt_am === null ? null : Number(row.bezahlt_am),
   }
 }
@@ -1466,7 +1478,7 @@ function neueReferenz(): string {
 }
 
 /**
- * Legt eine offene Bestellung an. Gebucht wird hier nichts.
+ * Legt eine Bestellung als ENTWURF an. Gebucht wird hier nichts.
  *
  * Menge und Betrag werden mitgeschrieben statt später nachgeschlagen: eine
  * Preisänderung darf nicht rückwirkend gelten für jemanden, der schon
@@ -1479,6 +1491,29 @@ export async function erzeugeBestellung(
 ): Promise<Bestellung> {
   await ensureReady()
 
+  /*
+   * Bei Vorkasse wird eine noch nicht bezahlte Bestellung desselben Kontos
+   * für dieselbe Stufe wiederverwendet. Sonst hinterlässt jeder Klick auf
+   * „Überweisungsdaten anzeigen" eine eigene Bestellung mit eigenem
+   * Verwendungszweck — und im Backend stünden drei Zeilen für eine einzige
+   * Überweisung. Der alte Preis bleibt dabei stehen, und das ist richtig so:
+   * angeboten wurde ihm der.
+   *
+   * Bei PayPal NICHT: dort hängt an der Bestellung ein Vorgang beim Anbieter,
+   * der nach einiger Zeit nicht mehr gilt. Ein zweiter Anlauf braucht einen
+   * frischen.
+   */
+  if (zahlweg === 'vorkasse') {
+    const vorhanden: Record<string, unknown>[] = await getPool().query(
+      `SELECT * FROM bestellungen
+        WHERE benutzer_id = ? AND paket_id = ? AND zahlweg = 'vorkasse'
+          AND status IN ('entwurf', 'offen')
+        ORDER BY id DESC LIMIT 1`,
+      [benutzerId, paket.id],
+    )
+    if (vorhanden[0]) return toBestellung(vorhanden[0])
+  }
+
   // Ein Zusammenstoß ist bei 31^8 Möglichkeiten unwahrscheinlich, aber der
   // UNIQUE-Index entscheidet das, nicht die Wahrscheinlichkeit.
   for (let versuch = 0; versuch < 5; versuch++) {
@@ -1487,7 +1522,7 @@ export async function erzeugeBestellung(
       const ergebnis = await getPool().query(
         `INSERT INTO bestellungen
            (referenz, benutzer_id, paket_id, credits, betrag_cent, zahlweg, status, angelegt_am)
-         VALUES (?, ?, ?, ?, ?, ?, 'offen', ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, 'entwurf', ?)`,
         [referenz, benutzerId, paket.id, paket.credits, paket.preisCent, zahlweg, Date.now()],
       )
       const rows: Record<string, unknown>[] = await getPool().query(
@@ -1550,8 +1585,62 @@ export async function anbieterReferenzVon(bestellungId: number): Promise<string>
   return String(rows[0]?.anbieter_referenz ?? '')
 }
 
+/**
+ * Aus einem Entwurf wird eine offene Bestellung: der Käufer sagt, das Geld
+ * ist unterwegs.
+ *
+ * Die Benutzer-ID steht in der Bedingung, nicht nur in einer Prüfung davor —
+ * damit lässt sich keine fremde Bestellung bestätigen, egal welche Nummer
+ * jemand schickt.
+ */
+export async function bestaetigeBestellung(
+  bestellungId: number,
+  benutzerId: number,
+): Promise<boolean> {
+  await ensureReady()
+  const ergebnis = await getPool().query(
+    `UPDATE bestellungen SET status = 'offen', bestaetigt_am = ?
+      WHERE id = ? AND benutzer_id = ? AND status = 'entwurf'`,
+    [Date.now(), bestellungId, benutzerId],
+  )
+  return Number(ergebnis.affectedRows) === 1
+}
+
+/**
+ * Was zu lange liegt, verfällt.
+ *
+ * Entwürfe und offene Bestellungen ohne Zahlungseingang verstopfen sonst
+ * dauerhaft die Arbeitsliste. Gelöscht wird nichts: der Beleg bleibt, er
+ * rutscht nur aus dem Weg — und buchen lässt er sich weiterhin, falls das
+ * Geld doch noch eintrifft.
+ *
+ * Aufgerufen wird das beim Laden der Listen, nicht über einen eigenen
+ * Zeitgeber: eine Bestellung verfällt nicht auf die Minute genau, und ein
+ * Dienst mehr wäre mehr Pflege als Nutzen. Die Sperre unten hält es davon
+ * ab, bei jedem Seitenaufruf zu laufen.
+ */
+const VERFALL_TAGE = Math.max(1, Math.floor(Number(process.env.BESTELLUNG_VERFALL_TAGE ?? 14)) || 14)
+let zuletztVerfallen = 0
+
+export async function verfalleAlteBestellungen(): Promise<number> {
+  if (Date.now() - zuletztVerfallen < 3600_000) return 0
+  zuletztVerfallen = Date.now()
+
+  const ergebnis = await getPool().query(
+    `UPDATE bestellungen SET status = 'abgelaufen'
+      WHERE status IN ('entwurf', 'offen') AND angelegt_am < ?`,
+    [Date.now() - VERFALL_TAGE * 86_400_000],
+  )
+  const anzahl = Number(ergebnis.affectedRows) || 0
+  if (anzahl) {
+    console.log(`[Zahlung] ${anzahl} Bestellung(en) nach ${VERFALL_TAGE} Tagen verfallen`)
+  }
+  return anzahl
+}
+
 export async function listBestellungenFuer(benutzerId: number): Promise<Bestellung[]> {
   await ensureReady()
+  await verfalleAlteBestellungen()
   const rows: Record<string, unknown>[] = await getPool().query(
     'SELECT * FROM bestellungen WHERE benutzer_id = ? ORDER BY angelegt_am DESC LIMIT 50',
     [benutzerId],
@@ -1562,11 +1651,12 @@ export async function listBestellungenFuer(benutzerId: number): Promise<Bestellu
 /** Die Verwaltungsliste — offene zuerst, denn die verlangen eine Handlung. */
 export async function listBestellungen(): Promise<BestellungEintrag[]> {
   await ensureReady()
+  await verfalleAlteBestellungen()
   const rows: Record<string, unknown>[] = await getPool().query(
     `SELECT b.*, u.email, u.name
        FROM bestellungen b
        LEFT JOIN benutzer u ON u.id = b.benutzer_id
-      ORDER BY b.status = 'offen' DESC, b.angelegt_am DESC
+      ORDER BY b.status = 'offen' DESC, b.status = 'entwurf' DESC, b.angelegt_am DESC
       LIMIT 300`,
   )
   return rows.map((row) => ({
@@ -1613,9 +1703,15 @@ export async function bucheBestellung(bestellungId: number): Promise<BuchungsErg
     }
     const bestellung = toBestellung(vorher[0])
 
+    /*
+     * Auch ein Entwurf und eine abgelaufene Bestellung lassen sich buchen:
+     * der Stand sagt, wie weit der Käufer war, nicht ob sein Geld zählt.
+     * Trifft es doch noch ein, wäre eine Sperre nur im Weg. Verschlossen
+     * sind allein „bezahlt" (sonst doppelt) und „storniert" (bewusst weg).
+     */
     const gedreht = await conn.query(
       `UPDATE bestellungen SET status = 'bezahlt', bezahlt_am = ?
-        WHERE id = ? AND status = 'offen'`,
+        WHERE id = ? AND status IN ('entwurf', 'offen', 'abgelaufen')`,
       [Date.now(), bestellungId],
     )
 
@@ -1649,11 +1745,12 @@ export async function bucheBestellung(bestellungId: number): Promise<BuchungsErg
   }
 }
 
-/** Bricht eine offene Bestellung ab. Bezahlte bleiben unangetastet. */
+/** Bricht eine noch nicht bezahlte Bestellung ab. Bezahlte bleiben unangetastet. */
 export async function storniereBestellung(bestellungId: number): Promise<boolean> {
   await ensureReady()
   const ergebnis = await getPool().query(
-    `UPDATE bestellungen SET status = 'storniert' WHERE id = ? AND status = 'offen'`,
+    `UPDATE bestellungen SET status = 'storniert'
+      WHERE id = ? AND status IN ('entwurf', 'offen', 'abgelaufen')`,
     [bestellungId],
   )
   return Number(ergebnis.affectedRows) === 1

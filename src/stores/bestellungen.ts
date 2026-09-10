@@ -80,6 +80,27 @@ export const useBestellungenStore = defineStore('bestellungen', () => {
   }
 
   /**
+   * Meldet, dass die Überweisung raus ist.
+   *
+   * Bucht nichts — es macht aus dem Entwurf eine offene Bestellung, damit
+   * der Betreiber weiß, dass hier wirklich Geld unterwegs ist.
+   */
+  async function ueberwiesen(bestellungId: number): Promise<boolean> {
+    busy.value = true
+    fehler.value = null
+    try {
+      await api.post(`/portal/bestellungen/${bestellungId}/ueberwiesen`, {})
+      await ladeEigene()
+      return true
+    } catch (cause) {
+      fehler.value = melde(cause, 'Die Meldung konnte nicht gespeichert werden.')
+      return false
+    } finally {
+      busy.value = false
+    }
+  }
+
+  /**
    * Schließt eine PayPal-Zahlung ab.
    *
    * Der Server zieht selbst bei PayPal ein und prüft den Betrag; von hier geht
@@ -129,6 +150,7 @@ export const useBestellungenStore = defineStore('bestellungen', () => {
     ladeKonfig,
     ladeEigene,
     anlegen,
+    ueberwiesen,
     erfassePaypal,
     abbrechen,
     zuruecksetzen,

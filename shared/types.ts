@@ -149,10 +149,23 @@ export function rabattProzent(paket: CreditPaket): number {
 export type Zahlweg = 'vorkasse' | 'paypal'
 
 /**
- * `offen` = bestellt, nicht bezahlt. `bezahlt` = Credits sind gutgeschrieben,
- * genau einmal. `storniert` = abgebrochen oder verfallen, nie gebucht.
+ * Der Weg einer Bestellung.
+ *
+ * `entwurf` heißt: jemand hat sich die Bankdaten geben lassen, mehr nicht.
+ * Diese Stufe gibt es, weil der Verwendungszweck erst mit der Bestellung
+ * entsteht — angelegt werden MUSS sie also beim Anzeigen, sonst hätte die
+ * Überweisung keine Brücke zum Konto. Wer bloß geschaut hat, soll deshalb
+ * nicht in derselben Liste stehen wie der, der überwiesen hat.
+ *
+ * `offen` = der Käufer sagt, das Geld ist unterwegs; es fehlt der Eingang.
+ * `bezahlt` = gutgeschrieben, genau einmal.
+ * `storniert` = von Hand abgebrochen, nie gebucht.
+ * `abgelaufen` = zu lange nichts passiert; bleibt als Beleg stehen.
+ *
+ * Der Stand ist ein Hinweis, keine Sperre: kommt Geld zu einem Entwurf,
+ * lässt er sich genauso buchen wie eine bestätigte Bestellung.
  */
-export type BestellStatus = 'offen' | 'bezahlt' | 'storniert'
+export type BestellStatus = 'entwurf' | 'offen' | 'bezahlt' | 'storniert' | 'abgelaufen'
 
 /**
  * Eine Bestellung über Credits.
@@ -172,6 +185,8 @@ export interface Bestellung {
   zahlweg: Zahlweg
   status: BestellStatus
   angelegtAm: number
+  /** Wann der Käufer gemeldet hat, dass er überwiesen hat. */
+  bestaetigtAm: number | null
   bezahltAm: number | null
 }
 

@@ -162,6 +162,17 @@ export async function erfassePaypalZahlung(vorgangId: string): Promise<Erfassung
      * antworten danach.
      */
     if (rohtext.includes('ORDER_ALREADY_CAPTURED')) return leseVorgang(vorgangId)
+
+    /*
+     * Noch nicht freigegeben ist ebenfalls kein Fehler, sondern ein Stand:
+     * der Käufer hat den Vorgang begonnen und bei PayPal nicht zu Ende
+     * geführt. Als Fehlschlag gemeldet, stünde beim Betreiber „PayPal
+     * antwortet nicht" — dabei antwortet es sehr genau.
+     */
+    if (rohtext.includes('ORDER_NOT_APPROVED') || rohtext.includes('PAYER_ACTION_REQUIRED')) {
+      return { status: 'offen' }
+    }
+
     return { status: 'fehlgeschlagen', grund: `${antwort.status}: ${rohtext.slice(0, 300)}` }
   }
 

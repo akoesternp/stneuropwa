@@ -6,8 +6,10 @@ import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
 import { KOMMENTAR_MAX_ZEICHEN, SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
+import { ziehePaypalEin } from '../einzug.js'
 import {
   bucheBestellung,
+  findeBestellung,
   deleteAdmin,
   deleteAktion,
   deleteBereich,
@@ -791,6 +793,21 @@ adminRouter.post('/bestellungen/:id/bestaetigen', async (req, res) => {
     return
   }
 
+  /*
+   * Von Hand bestätigt wird nur eine Überweisung — dort ist der Mensch am
+   * Kontoauszug die einzige Quelle. Bei PayPal wäre es eine Gutschrift ohne
+   * Deckung: ob Geld geflossen ist, weiß allein PayPal, und der Einzug
+   * fragt es. Wer wirklich außer der Reihe gutschreiben will, tut das beim
+   * Konto — dort steht es dann auch als Handbuchung.
+   */
+  const vorhanden = await findeBestellung(id)
+  if (vorhanden?.zahlweg === 'paypal') {
+    res.status(409).json({
+      error: 'Bei PayPal bitte „einziehen“ — dabei wird der Betrag geprüft.',
+    })
+    return
+  }
+
   const ergebnis = await bucheBestellung(id)
 
   switch (ergebnis.status) {
@@ -809,6 +826,62 @@ adminRouter.post('/bestellungen/:id/bestaetigen', async (req, res) => {
       return
     default:
       res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+  }
+})
+
+/**
+ * Nachfassen: eine PayPal-Zahlung einziehen, die der Käufer freigegeben,
+ * aber nicht abgeschlossen hat.
+ *
+ * Der übliche Fall: der Reiter ging nach der Freigabe zu, bevor der Browser
+ * zurückmelden konnte. Dann liegt bei PayPal ein freigegebener Vorgang, aus
+ * dem noch kein Geld gezogen wurde — der Käufer glaubt, bezahlt zu haben,
+ * und hat kein Guthaben. Hier holt der Betreiber das nach.
+ *
+ * Geprüft wird dabei dasselbe wie im Portal: der Betrag muss zur Bestellung
+ * passen, gebucht wird genau einmal.
+ */
+adminRouter.post('/bestellungen/:id/einziehen', async (req, res) => {
+  const bestellung = await findeBestellung(Number(req.params.id))
+
+  if (!bestellung || bestellung.zahlweg !== 'paypal') {
+    res.status(404).json({ error: 'Keine PayPal-Bestellung mit dieser Nummer.' })
+    return
+  }
+  if (bestellung.status === 'bezahlt') {
+    res.status(409).json({ error: 'Diese Bestellung ist bereits gebucht.' })
+    return
+  }
+
+  const ergebnis = await ziehePaypalEin(bestellung)
+
+  switch (ergebnis.status) {
+    case 'gebucht':
+      res.json({ ok: true, gutgeschrieben: ergebnis.gutgeschrieben, credits: ergebnis.credits })
+      return
+    case 'schon-gebucht':
+      res.json({ ok: true, schonGebucht: true })
+      return
+    case 'noch-nicht':
+      res.status(409).json({
+        error: 'PayPal hat dazu keine abgeschlossene Zahlung — der Käufer hat noch nicht freigegeben.',
+      })
+      return
+    case 'kein-vorgang':
+      res.status(409).json({ error: 'Zu dieser Bestellung gibt es keinen PayPal-Vorgang.' })
+      return
+    case 'betrag-weicht-ab':
+      res.status(409).json({
+        error:
+          `Gezahlt wurden ${(ergebnis.erhalten / 100).toFixed(2)} €, bestellt waren ` +
+          `${(ergebnis.erwartet / 100).toFixed(2)} €. Nicht gebucht.`,
+      })
+      return
+    case 'nicht-buchbar':
+      res.status(409).json({ error: 'Diese Bestellung lässt sich nicht mehr buchen.' })
+      return
+    default:
+      res.status(502).json({ error: 'PayPal antwortet gerade nicht.' })
   }
 })
 

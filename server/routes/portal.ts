@@ -5,11 +5,10 @@ import type { Response } from 'express'
 import { creditPaket, KOMMENTAR_MAX_ZEICHEN } from '../../shared/types.js'
 import type { Zahlweg } from '../../shared/types.js'
 import {
-  bucheBestellung,
+  bestaetigeBestellung,
   darfVideoSehen,
   erzeugeBestellung,
   findeAktiveAktion,
-  anbieterReferenzVon,
   findeBestellung,
   kaufePaket,
   kaufeVideo,
@@ -30,8 +29,8 @@ import {
   storniereBestellung,
 } from '../db.js'
 import type { KaufErgebnis } from '../db.js'
+import { ziehePaypalEin } from '../einzug.js'
 import {
-  erfassePaypalZahlung,
   erzeugePaypalVorgang,
   paypalAktiv,
   paypalClientId,
@@ -228,64 +227,68 @@ portalRouter.post('/bestellungen/:id/paypal', requireUser, async (req, res) => {
     return
   }
 
-  /*
-   * Die Vorgangsnummer kommt aus UNSERER Bestellung, nicht aus der Anfrage.
-   * Der Browser meldet zwar eine mit, aber würde man ihr folgen, ließe sich
-   * eine fremde Zahlung auf das eigene Konto buchen.
-   */
-  const vorgangId = await anbieterReferenzVon(bestellung.id)
-  if (!vorgangId) {
-    res.status(409).json({ error: 'Zu dieser Bestellung gibt es keinen PayPal-Vorgang.' })
-    return
-  }
+  const ergebnis = await ziehePaypalEin(bestellung)
 
-  const ergebnis = await erfassePaypalZahlung(vorgangId)
-
-  if (ergebnis.status === 'offen') {
-    res.status(402).json({ error: 'Die Zahlung ist noch nicht abgeschlossen.' })
-    return
+  switch (ergebnis.status) {
+    case 'gebucht':
+      res.json({
+        ok: true,
+        gutgeschrieben: ergebnis.gutgeschrieben,
+        credits: ergebnis.credits,
+      })
+      return
+    case 'schon-gebucht':
+      // Zweiter Aufruf derselben Zahlung — kein Fehler, nur nichts zu tun.
+      res.json({ ok: true, schonGebucht: true, credits: null })
+      return
+    case 'noch-nicht':
+      res.status(402).json({ error: 'Die Zahlung ist noch nicht abgeschlossen.' })
+      return
+    case 'kein-vorgang':
+      res.status(409).json({ error: 'Zu dieser Bestellung gibt es keinen PayPal-Vorgang.' })
+      return
+    case 'betrag-weicht-ab':
+      res.status(409).json({
+        error:
+          'Der gezahlte Betrag stimmt nicht mit der Bestellung überein. ' +
+          'Bitte melden Sie sich bei uns.',
+      })
+      return
+    case 'nicht-buchbar':
+      res.status(409).json({ error: 'Diese Bestellung lässt sich nicht mehr buchen.' })
+      return
+    default:
+      res.status(502).json({ error: 'Die Zahlung konnte nicht abgeschlossen werden.' })
   }
-  if (ergebnis.status === 'fehlgeschlagen') {
-    console.error(`[Zahlung] Erfassung fehlgeschlagen (Bestellung ${bestellung.id}): ${ergebnis.grund}`)
-    res.status(502).json({ error: 'Die Zahlung konnte nicht abgeschlossen werden.' })
-    return
-  }
-
-  /*
-   * Betragsprüfung: gezahlt werden muss, was bestellt wurde. Weicht es ab,
-   * wird NICHT gebucht — lieber ein Fall für die Hand als eine falsche
-   * Gutschrift.
-   */
-  if (ergebnis.betragCent !== bestellung.betragCent) {
-    console.error(
-      `[Zahlung] Betrag weicht ab (Bestellung ${bestellung.id}): ` +
-        `erwartet ${bestellung.betragCent}, erhalten ${ergebnis.betragCent}`,
-    )
-    res.status(409).json({
-      error: 'Der gezahlte Betrag stimmt nicht mit der Bestellung überein. Bitte melden Sie sich bei uns.',
-    })
-    return
-  }
-
-  const gebucht = await bucheBestellung(bestellung.id)
-
-  if (gebucht.status === 'nicht-gefunden' || gebucht.status === 'storniert') {
-    res.status(409).json({ error: 'Diese Bestellung lässt sich nicht mehr buchen.' })
-    return
-  }
-  if (gebucht.status === 'schon-gebucht') {
-    // Zweiter Aufruf derselben Zahlung — kein Fehler, nur nichts zu tun.
-    res.json({ ok: true, schonGebucht: true, credits: null })
-    return
-  }
-
-  console.log(
-    `[Zahlung] PayPal ${bestellung.referenz}: +${bestellung.credits} Credits ` +
-      `für Konto ${benutzerId}, neuer Stand ${gebucht.credits}`,
-  )
-  res.json({ ok: true, gutgeschrieben: bestellung.credits, credits: gebucht.credits })
 })
 
+/**
+ * Der Käufer meldet, dass die Überweisung raus ist.
+ *
+ * Das bucht nichts und beschleunigt nichts — es sagt dem Betreiber nur,
+ * dass hier wirklich Geld unterwegs ist. Ohne diesen Schritt sähe jede
+ * angezeigte Bankverbindung aus wie eine Bestellung, und in der
+ * Arbeitsliste stünde vor allem, wer sich die Daten bloß angesehen hat.
+ */
+portalRouter.post('/bestellungen/:id/ueberwiesen', requireUser, async (req, res) => {
+  const benutzerId = Number(req.session!.subject)
+  const bestellung = await findeBestellung(Number(req.params.id), benutzerId)
+
+  if (!bestellung || bestellung.zahlweg !== 'vorkasse') {
+    res.status(404).json({ error: 'Bestellung nicht gefunden.' })
+    return
+  }
+
+  const erledigt = await bestaetigeBestellung(bestellung.id, benutzerId)
+  if (!erledigt) {
+    // Schon bestätigt, schon bezahlt oder abgebrochen — in jedem Fall nichts zu tun.
+    res.status(409).json({ error: 'Diese Bestellung wartet nicht mehr auf Ihre Bestätigung.' })
+    return
+  }
+
+  console.log(`[Zahlung] ${bestellung.referenz}: Käufer meldet die Überweisung`)
+  res.json({ ok: true })
+})
 /** Die eigenen Bestellungen — Beleg und Stand der offenen Überweisungen. */
 portalRouter.get('/bestellungen', requireUser, async (req, res) => {
   res.json({ bestellungen: await listBestellungenFuer(Number(req.session!.subject)) })
