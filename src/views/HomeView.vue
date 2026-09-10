@@ -242,6 +242,37 @@ const uebungen = computed(() => {
   if (filterAktiv.value) return trefferVideos.value
   return zielgruppe.value ? einzelneDerZielgruppe.value : freieVideos.value
 })
+
+/* ── Was mir gehört ──────────────────────────────────────────────────── */
+
+/**
+ * Nur auf der ungefilterten Startseite: bei gesetztem Filter oder in einer
+ * Zielgruppe gilt weiter die dortige Gliederung, sonst stünde derselbe Inhalt
+ * zweimal auf der Seite.
+ */
+const zeigeEigenes = computed(
+  () => auth.isAuthenticated && !filterAktiv.value && !zielgruppe.value,
+)
+
+/** Die Pakete des Nutzers — Namensvergleich, wie an der Paketkarte auch. */
+const meinePakete = computed(() =>
+  zeigeEigenes.value
+    ? pakete.pakete.filter((paket) => auth.user?.pakete.includes(paket.name))
+    : [],
+)
+
+/**
+ * Freigeschaltete Übungen ohne die öffentlichen.
+ *
+ * Ohne den Ausschluss stünden die frei zugänglichen hier UND im Abschnitt
+ * darunter — und der Nutzer hielte etwas für seinen Besitz, was ohnehin jedem
+ * offensteht.
+ */
+const meineVideos = computed(() =>
+  zeigeEigenes.value
+    ? videos.videos.filter((video) => video.freigeschaltet && !video.oeffentlich)
+    : [],
+)
 </script>
 
 <template>
@@ -296,6 +327,11 @@ const uebungen = computed(() => {
         Nichts gefunden. Ein anderes Merkmal oder ein kürzerer Suchbegriff hilft meist.
       </p>
 
+      <!--
+        ── Was mir gehört ─────────────────────────────────────────────
+        Ganz oben, aber unter „Weiterschauen": Angefangenes ist dringender
+        als Besessenes. Für Gäste und bei gesetztem Filter entfällt beides.
+      -->
       <!-- ── Weiterschauen ─────────────────────────────────────────── -->
       <section v-if="weiterschauen.length" class="abschnitt">
         <header class="abschnitt-kopf">
@@ -312,6 +348,44 @@ const uebungen = computed(() => {
             :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
             :ohne-datei="!video.hatDatei"
             :anteil="anteil(video)"
+          />
+        </div>
+      </section>
+
+      <!-- ── Meine Pakete ──────────────────────────────────────────── -->
+      <section v-if="meinePakete.length" class="abschnitt">
+        <header class="abschnitt-kopf">
+          <h2 class="t-h3">Ihre Pakete</h2>
+          <span class="zaehler t-meta">
+            {{ meinePakete.length }} freigeschaltet
+          </span>
+        </header>
+        <div class="paket-grid">
+          <PaketKarte v-for="paket in meinePakete" :key="paket.id" :paket="paket" />
+        </div>
+      </section>
+
+      <!-- ── Meine Übungen ─────────────────────────────────────────── -->
+      <section v-if="meineVideos.length" class="abschnitt">
+        <header class="abschnitt-kopf">
+          <h2 class="t-h3">Ihre Übungen</h2>
+          <span class="zaehler t-meta">für Sie freigeschaltet</span>
+        </header>
+        <div class="grid">
+          <VideoTile
+            v-for="video in meineVideos"
+            :id="video.id"
+            :key="video.id"
+            :titel="video.titel"
+            :untertitel="video.untertitel"
+            :beschreibung="video.beschreibung"
+            :dauer="video.dauer"
+            :kategorien="[video.bereich, video.schwierigkeit].filter(Boolean)"
+            :hilfsmittel="video.hilfsmittel"
+            :marken="video.paketNamen"
+            :ohne-datei="!video.hatDatei"
+            :anteil="anteil(video)"
+            :erledigt="erledigt(video)"
           />
         </div>
       </section>
