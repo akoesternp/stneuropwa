@@ -416,13 +416,20 @@ onBeforeUnmount(() => {
         <p v-if="credits.fehler" class="kauf-fehler" role="alert">{{ credits.fehler }}</p>
       </div>
 
-      <!-- Der eigentliche Schutz ist die Berechtigungsprüfung im Stream;
-           controlsList nimmt nur den Herunterladen-Knopf aus der Leiste.
-           Der Schlüssel sorgt dafür, dass beim Wechsel auf ein anderes Video
-           ein frisches Element entsteht — daran hängt der Player neu. -->
-      <div v-else-if="video.hatDatei" class="buehne">
+      <!--
+        Der eigentliche Schutz ist die Berechtigungsprüfung im Stream;
+        controlsList nimmt nur den Herunterladen-Knopf aus der Leiste.
+
+        Der Schlüssel sitzt am Rahmen, nicht am <video>: Plyr zieht das
+        Videoelement beim Aufsetzen in eine eigene Hülle. Vue kennt danach
+        ein Element, das ihm nicht mehr gehört — beim Wechsel auf eine
+        andere Übung setzte es das neue daneben, und die alte Hülle samt
+        altem Video blieb stehen. Es standen dann zwei Player übereinander.
+        Am Rahmen greift der Wechsel dagegen sauber: Vue tauscht den ganzen
+        Kasten aus und nimmt alles mit, was Plyr darin angerichtet hat.
+      -->
+      <div v-else-if="video.hatDatei" :key="video.id" class="buehne">
         <video
-          :key="video.id"
           ref="videoEl"
           class="video"
           :src="streamUrl"
