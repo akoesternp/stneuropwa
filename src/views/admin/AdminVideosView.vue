@@ -90,7 +90,18 @@ const columns: Column[] = [
   { label: 'Sichtbar über', width: 'minmax(150px,0.9fr)' },
   { label: 'Datei', width: 'minmax(150px,0.8fr)' },
   { label: 'Status', width: '90px' },
-  { width: '210px' },
+  /*
+   * Diese Tabelle hat als einzige DREI Knöpfe je Zeile; die 210px der
+   * übrigen Tabellen reichten nicht, und der Überhang schob sich nach
+   * links über die Status-Spalte (die Knöpfe schrumpfen nicht, und
+   * justify-content: flex-end drückt den Rest genau dorthin).
+   *
+   * Feste Breite, nicht max-content: Kopf und Zeilen sind getrennte Grids
+   * mit derselben Spaltenvorlage. Eine inhaltsabhängige Breite fällt dort
+   * verschieden aus — die Kopfzelle dieser Spalte ist leer — und die
+   * Überschriften stünden über den falschen Spalten.
+   */
+  { width: '330px' },
 ]
 
 const isNew = computed(() => editing.value !== null && editing.value.id === null)
@@ -707,7 +718,7 @@ async function remove(row: Video) {
       </div>
     </dialog>
 
-    <DataTable :columns="columns" :rows="rows" row-key="id" min-width="1330px">
+    <DataTable :columns="columns" :rows="rows" row-key="id" min-width="1400px">
       <template #row="{ row }">
         <span class="name t-truncate">{{ row.titel }}</span>
         <span class="muted t-truncate">{{ row.untertitel || '—' }}</span>
@@ -1053,5 +1064,7 @@ async function remove(row: Video) {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  /* Lieber eine höhere Zeile als Knöpfe, die in die Nachbarspalte ragen. */
+  flex-wrap: wrap;
 }
 </style>
