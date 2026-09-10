@@ -18,6 +18,7 @@ const busy = ref(false)
 const notice = ref<string | null>(null)
 const error = ref<string | null>(null)
 const nurOffene = ref(true)
+const suche = ref('')
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 const datum = new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' })
@@ -33,14 +34,33 @@ const columns: Column[] = [
   { width: '330px' },
 ]
 
+/**
+ * Zusammengezogen, damit sich Nummern vergleichen lassen, wie sie
+ * abgeschrieben werden: „stn by5f evv6", „STN-BY5F-EVV6" und „by5fevv6"
+ * sollen dieselbe Bestellung finden. Aus einem Kontoauszug kommt selten,
+ * was in der Datenbank steht.
+ */
+const nurZeichen = (text: string) => text.toLowerCase().replace(/[^a-z0-9@.]/g, '')
+
 /*
  * „Nur offene" heißt: was auf MICH wartet. Entwürfe warten auf den Käufer
  * und gehören nicht in dieselbe Liste — sonst stünde dort vor allem, wer
  * sich die Bankdaten bloß angesehen hat.
+ *
+ * Die Suche geht über beide Nummern (unsere Referenz und die von PayPal),
+ * über die laufende Nummer und über das Konto — man sucht mal mit dem,
+ * was im Kontoauszug steht, mal mit dem, was der Kunde geschrieben hat.
  */
-const sichtbar = computed(() =>
-  nurOffene.value ? rows.value.filter((row) => row.status === 'offen') : rows.value,
-)
+const sichtbar = computed(() => {
+  const begriff = nurZeichen(suche.value.trim())
+  return rows.value.filter((row) => {
+    if (nurOffene.value && row.status !== 'offen') return false
+    if (!begriff) return true
+    return [row.referenz, row.anbieterReferenz, String(row.id), row.email, row.name].some(
+      (feld) => nurZeichen(String(feld ?? '')).includes(begriff),
+    )
+  })
+})
 
 const entwuerfe = computed(() => rows.value.filter((row) => row.status === 'entwurf').length)
 
@@ -230,10 +250,22 @@ function erklaerung(row: BestellungEintrag): string {
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
-    <label class="filter">
-      <input v-model="nurOffene" type="checkbox" />
-      Nur offene anzeigen<template v-if="offeneAnzahl"> ({{ offeneAnzahl }})</template>
-    </label>
+    <div class="werkzeuge">
+      <label class="suchfeld">
+        <span class="visually-hidden">Bestellungen durchsuchen</span>
+        <span class="lupe" aria-hidden="true">⌕</span>
+        <input
+          v-model="suche"
+          type="search"
+          placeholder="Verwendungszweck, PayPal-Nummer, Konto …"
+        />
+      </label>
+
+      <label class="filter">
+        <input v-model="nurOffene" type="checkbox" />
+        Nur offene anzeigen<template v-if="offeneAnzahl"> ({{ offeneAnzahl }})</template>
+      </label>
+    </div>
 
     <p v-if="nurOffene && entwuerfe" class="t-meta hinweis-entwuerfe">
       Dazu {{ entwuerfe }} angefangene, die auf den Käufer warten — ohne den Filter zu sehen.
@@ -324,7 +356,10 @@ function erklaerung(row: BestellungEintrag): string {
       </template>
 
       <template #empty>
-        {{ nurOffene ? 'Keine offenen Bestellungen.' : 'Noch keine Bestellungen.' }}
+        <template v-if="suche.trim()">Nichts gefunden zu „{{ suche.trim() }}“.</template>
+        <template v-else>{{
+          nurOffene ? 'Keine offenen Bestellungen.' : 'Noch keine Bestellungen.'
+        }}</template>
       </template>
     </DataTable>
   </section>
@@ -414,6 +449,46 @@ function erklaerung(row: BestellungEintrag): string {
 
 .status.storniert {
   color: var(--c-text-muted);
+}
+
+.werkzeuge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.suchfeld {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--r-nav);
+  background: var(--c-surface);
+}
+
+.suchfeld:focus-within {
+  outline: 2px solid var(--c-focus);
+  outline-offset: 1px;
+}
+
+.lupe {
+  color: var(--c-text-muted);
+}
+
+.suchfeld input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--fs-secondary);
+}
+
+.suchfeld input:focus {
+  outline: 0;
 }
 
 .hinweis-entwuerfe {

@@ -1800,7 +1800,14 @@ export async function listBestellungenFuer(benutzerId: number): Promise<Bestellu
   return rows.map(toBestellung)
 }
 
-/** Die Verwaltungsliste — offene zuerst, denn die verlangen eine Handlung. */
+/**
+ * Die Verwaltungsliste — der jüngste Eingang oben.
+ *
+ * Früher standen offene zuerst. Das half nicht mehr: der Filter „nur
+ * offene" ist von Haus aus an, und wer ihn ausschaltet, sucht meist eine
+ * bestimmte Bestellung — und die findet er über das Datum oder die Suche,
+ * nicht über den Stand.
+ */
 export async function listBestellungen(): Promise<BestellungEintrag[]> {
   await ensureReady()
   await verfalleAlteBestellungen()
@@ -1819,7 +1826,7 @@ export async function listBestellungen(): Promise<BestellungEintrag[]> {
        ) AS tiefstand
        FROM bestellungen b
        LEFT JOIN benutzer u ON u.id = b.benutzer_id
-      ORDER BY b.status = 'offen' DESC, b.status = 'entwurf' DESC, b.angelegt_am DESC
+      ORDER BY b.angelegt_am DESC, b.id DESC
       LIMIT 300`,
   )
   return rows.map((row) => ({
