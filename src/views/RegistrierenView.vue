@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import NeuroWert from '@/components/NeuroWert.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
+import { api } from '@/api/client'
+import type { StartguthabenInfo } from '@/types'
 
 /**
  * Selbstregistrierung.
@@ -29,6 +32,30 @@ const email = ref('')
 const passwort = ref('')
 const wiederholung = ref('')
 const fehler = ref<string | null>(null)
+
+/**
+ * Was ein neues Konto bekommt — inklusive laufender Aktion.
+ *
+ * Wird vor dem Absenden angezeigt, denn genau dafür ist eine Aktion da: ein
+ * Guthaben, das erst hinterher auftaucht, wirbt nicht. Verbindlich ist es
+ * trotzdem nicht — zwischen Anzeige und Klick kann das Fenster zugehen oder
+ * der Deckel fallen. Deshalb meldet die Bestätigung unten den TATSÄCHLICH
+ * gebuchten Betrag.
+ */
+const startguthaben = ref<StartguthabenInfo | null>(null)
+
+onMounted(async () => {
+  try {
+    startguthaben.value = await api.get<StartguthabenInfo>('/portal/startguthaben')
+  } catch {
+    // Ohne diese Auskunft fehlt nur der Hinweis, nicht das Formular.
+    startguthaben.value = null
+  }
+})
+
+const geschenk = computed(
+  () => startguthaben.value?.aktion?.credits ?? startguthaben.value?.grundguthaben ?? 0,
+)
 
 const zuKurz = computed(() => passwort.value.length > 0 && passwort.value.length < MIN_LAENGE)
 const ungleich = computed(
@@ -72,9 +99,24 @@ async function onSubmit() {
         </p>
       </div>
 
+      <!--
+        Das Startguthaben gehört auf die Werbeseite, nicht ins Kleingedruckte:
+        es ist der greifbarste Grund, das Formular auszufüllen.
+      -->
+      <div v-if="geschenk > 0" class="geschenk">
+        <NeuroWert class="geschenk-wert" :betrag="geschenk" wort />
+        <span class="geschenk-text">
+          {{
+            startguthaben?.aktion
+              ? `geschenkt — Aktion „${startguthaben.aktion.name}"`
+              : 'zum Start geschenkt'
+          }}
+        </span>
+      </div>
+
       <p class="hint t-meta">
-        Zunächst sind die frei verfügbaren Übungen zugänglich. Weitere Pakete schalten wir Ihnen
-        auf Wunsch frei.
+        Zunächst sind die frei verfügbaren Übungen zugänglich<template v-if="geschenk > 0">;
+        mit Ihrem Startguthaben schalten Sie weitere frei</template>.
       </p>
     </section>
 
@@ -200,6 +242,31 @@ async function onSubmit() {
 .hint {
   color: var(--c-on-dark-faint);
   max-width: 46ch;
+}
+
+/* Auf dem Verlauf abgesetzt: die Zahl soll das Erste sein, was auffällt. */
+.geschenk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  align-self: flex-start;
+  padding: 14px 22px;
+  border: 1px solid var(--c-on-dark-faint);
+  border-radius: var(--r-card);
+  color: var(--c-white);
+}
+
+.geschenk-wert {
+  font-size: var(--fs-stat);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.geschenk-text {
+  font-size: var(--fs-secondary);
+  line-height: 1.4;
+  color: var(--c-on-dark);
+  max-width: 22ch;
 }
 
 .pane {

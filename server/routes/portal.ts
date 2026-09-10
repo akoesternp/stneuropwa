@@ -8,6 +8,7 @@ import {
   bucheBestellung,
   darfVideoSehen,
   erzeugeBestellung,
+  findeAktiveAktion,
   anbieterReferenzVon,
   findeBestellung,
   kaufePaket,
@@ -31,6 +32,7 @@ import {
   paypalUmgebung,
 } from '../paypal.js'
 import { VORKASSE } from '../vorkasse.js'
+import { START_CREDITS } from './auth.js'
 import { THUMB_DIR, VIDEO_DIR } from '../paths.js'
 import { currentSession, requireUser } from '../sessions.js'
 import { formatiereDauer, parseDauer } from '../videodauer.js'
@@ -115,6 +117,24 @@ portalRouter.get('/zahlung/konfig', (_req, res) => {
       umgebung: paypalUmgebung(),
     },
     vorkasse: VORKASSE,
+  })
+})
+
+/**
+ * Was ein neues Konto an Startguthaben bekäme.
+ *
+ * Öffentlich, denn genau davor steht die Frage: die Registrierungsseite soll
+ * damit werben dürfen. Preisgegeben wird nur der Betrag und wie lange er noch
+ * gilt — wie viele Plätze eine Aktion noch hat, ist Betriebsinterna.
+ */
+portalRouter.get('/startguthaben', async (_req, res) => {
+  const aktion = await findeAktiveAktion(START_CREDITS)
+
+  res.json({
+    grundguthaben: START_CREDITS,
+    aktion: aktion
+      ? { name: aktion.name, credits: aktion.credits, endetAm: aktion.ende }
+      : null,
   })
 })
 

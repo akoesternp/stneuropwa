@@ -6,7 +6,7 @@ import {
   findBenutzerByEmail,
   findBenutzerById,
   paketNamenFuer,
-  saveBenutzer,
+  registriereBenutzer,
 } from '../db.js'
 import { hashPassword, verifyPassword } from '../passwords.js'
 import { createSession, currentSession, destroySession } from '../sessions.js'
@@ -44,6 +44,17 @@ const REGISTRIERUNG_OFFEN = process.env.REGISTRIERUNG !== '0'
 
 /** Kürzer ergibt bei einem Zugang, der Inhalte freischaltet, keinen Sinn. */
 const MIN_PASSWORT_LAENGE = 8
+
+/**
+ * Startguthaben für ein neues Konto.
+ *
+ * Als Umgebungsvariable wie REGISTRIERUNG, weil es eine Betriebsentscheidung
+ * ist und selten wechselt. Beweglich wird es über die Aktionszeiträume im
+ * Backend — die sind der Ort für „diesen Monat gibt es mehr".
+ *
+ * Ohne Angabe 0, also genau das Verhalten von vorher.
+ */
+export const START_CREDITS = Math.max(0, Math.floor(Number(process.env.START_CREDITS ?? 0)) || 0)
 
 /*
  * Grobe Bremse gegen das Vollschreiben der Benutzertabelle. Bewusst im
@@ -112,24 +123,33 @@ authRouter.post('/registrieren', async (req, res) => {
     return
   }
 
-  const id = await saveBenutzer(null, {
+  /*
+   * Ohne Pakete und ohne Einzelfreischaltungen — nur mit Startguthaben, und
+   * wie viel das ist, entscheidet die Datenbank: läuft gerade eine Aktion,
+   * gilt deren Betrag. Der zurückgemeldete Wert ist der TATSÄCHLICH gebuchte,
+   * nicht der vorher angekündigte: zwischen Anzeige und Absenden kann das
+   * Fenster zugehen oder der Deckel fallen.
+   */
+  const konto = await registriereBenutzer({
     email,
     name,
-    aktiv: true,
     passwortHash: await hashPassword(passwort),
-    // Ohne Zuordnung und ohne Guthaben: freigeschaltet wird über Credits oder
-    // durch den Betreiber, beides kommt nach der Registrierung.
-    paketIds: [],
-    videoIds: [],
-    credits: 0,
+    grundguthaben: START_CREDITS,
   })
 
-  console.log(`[Auth] Neues Konto registriert: ${email}`)
+  console.log(
+    `[Auth] Neues Konto registriert: ${email} (+${konto.credits} Credits` +
+      `${konto.aktion ? `, Aktion "${konto.aktion}"` : ''})`,
+  )
 
   // Gleich angemeldet — ein Formular, nach dem man sich noch einmal anmelden
   // muss, ist eine überflüssige Hürde.
-  createSession(res, 'user', String(id), false)
-  res.json({ user: { id, email, name, pakete: [], credits: 0 } })
+  createSession(res, 'user', String(konto.id), false)
+  res.json({
+    user: { id: konto.id, email, name, pakete: [], credits: konto.credits },
+    // Damit die Seite sagen kann, WOFÜR das Guthaben da ist.
+    aktion: konto.aktion || null,
+  })
 })
 
 authRouter.post('/login', async (req, res) => {

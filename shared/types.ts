@@ -175,6 +175,38 @@ export interface Bestellung {
   bezahltAm: number | null
 }
 
+/* ── Aktionen ──────────────────────────────────────────────────────────── */
+
+/**
+ * Ein Aktionszeitraum fürs Startguthaben.
+ *
+ * Wer sich innerhalb des Fensters registriert, bekommt `credits` statt des
+ * Grundbetrags. `beginn` gilt einschließend, `ende` ausschließend.
+ */
+export interface Aktion {
+  id: number
+  name: string
+  credits: number
+  beginn: number
+  ende: number
+  aktiv: boolean
+  /** 0 = unbegrenzt. Sonst die Zahl der Konten, die noch profitieren können. */
+  maxEinloesungen: number
+  einloesungen: number
+  angelegtAm: number
+}
+
+/**
+ * Was die Registrierungsseite vorab nennen darf.
+ *
+ * Bewusst ohne `maxEinloesungen` und `einloesungen` — wie viele Plätze noch
+ * frei sind, ist Betriebsinterna und geht Besucher nichts an.
+ */
+export interface StartguthabenInfo {
+  grundguthaben: number
+  aktion: { name: string; credits: number; endetAm: number } | null
+}
+
 /** Eine Bestellung aus Sicht der Verwaltung — mit dem Besteller daneben. */
 export interface BestellungEintrag extends Bestellung {
   benutzerId: number

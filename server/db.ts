@@ -9,6 +9,7 @@ import {
   STANDARD_BEREICHE,
 } from '../shared/types.js'
 import type {
+  Aktion,
   Bereich,
   BenutzerEintrag,
   Bestellung,
@@ -112,6 +113,21 @@ async function createSchema(): Promise<void> {
     const benutzerSpalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM benutzer`)
     if (!benutzerSpalten.some((spalte) => spalte.Field === 'credits')) {
       await conn.query(`ALTER TABLE benutzer ADD COLUMN credits INT NOT NULL DEFAULT 0`)
+    }
+
+    /*
+     * Woher das Startguthaben kam. Ohne diese beiden Spalten ließe sich später
+     * nicht mehr beantworten, warum ein Konto mit Guthaben begonnen hat — die
+     * Aktion kann bis dahin längst abgelaufen sein. `start_aktion_id` bleibt
+     * NULL, wenn nur der Grundbetrag galt.
+     */
+    if (!benutzerSpalten.some((spalte) => spalte.Field === 'start_credits')) {
+      await conn.query(`ALTER TABLE benutzer ADD COLUMN start_credits INT NOT NULL DEFAULT 0`)
+    }
+    if (!benutzerSpalten.some((spalte) => spalte.Field === 'start_aktion_id')) {
+      await conn.query(
+        `ALTER TABLE benutzer ADD COLUMN start_aktion_id INT UNSIGNED NULL DEFAULT NULL`,
+      )
     }
 
     await conn.query(
@@ -340,6 +356,36 @@ async function createSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
 
+    /*
+     * Aktionszeiträume fürs Startguthaben.
+     *
+     * In der Datenbank statt in der Umgebung, weil ein Zeitraum ein Vorgang
+     * ist und kein Betriebsparameter: er wird angelegt, läuft ab und soll
+     * danach noch nachweisbar sein, ohne dass jemand den Dienst neu startet.
+     *
+     * `beginn` und `ende` in Millisekunden wie alle Zeitstempel hier; `ende`
+     * gilt ausschließend — es ist der erste Moment, in dem die Aktion NICHT
+     * mehr zieht. `max_einloesungen = 0` heißt unbegrenzt; `einloesungen` ist
+     * dabei kein Bericht, sondern die Sperre: hochgezählt wird im bedingten
+     * UPDATE derselben Transaktion, die das Konto anlegt. Eine Aktion ohne
+     * Deckel wäre sonst ein offener Scheck für jeden, der den Link streut.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS aktionen (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name VARCHAR(128) NOT NULL,
+        credits INT NOT NULL DEFAULT 0,
+        beginn BIGINT NOT NULL DEFAULT 0,
+        ende BIGINT NOT NULL DEFAULT 0,
+        aktiv TINYINT(1) NOT NULL DEFAULT 1,
+        max_einloesungen INT NOT NULL DEFAULT 0,
+        einloesungen INT NOT NULL DEFAULT 0,
+        angelegt_am BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        KEY ix_fenster (aktiv, beginn, ende)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
     await conn.query(
       `CREATE TABLE IF NOT EXISTS fortschritt (
         benutzer_id INT UNSIGNED NOT NULL,
@@ -535,6 +581,93 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
 
     await conn.commit()
     return benutzerId
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+export interface Registrierung {
+  id: number
+  /** Was tatsächlich gutgeschrieben wurde. */
+  credits: number
+  /** Name der Aktion, die griff — leer, wenn nur der Grundbetrag galt. */
+  aktion: string
+}
+
+/**
+ * Legt ein Konto aus der Selbstregistrierung an — samt Startguthaben, in EINER
+ * Transaktion.
+ *
+ * Eigener Weg neben `saveBenutzer`, weil hier andere Spalten geschrieben
+ * werden: woher das Guthaben kam, hält nur die Registrierung fest; die
+ * Verwaltung setzt Guthaben frei und braucht keine Herkunft.
+ *
+ * Über den Deckel einer Aktion entscheidet NICHT der vorher gelesene
+ * Zählerstand, sondern das bedingte UPDATE — dasselbe Prinzip wie beim Buchen
+ * einer Bestellung. Zwei Anmeldungen im selben Augenblick können ihn damit
+ * nicht gemeinsam überschreiten; wer den Übergang verliert, bekommt den
+ * Grundbetrag statt einer Fehlermeldung.
+ */
+export async function registriereBenutzer(daten: {
+  email: string
+  name: string
+  passwortHash: string
+  grundguthaben: number
+}): Promise<Registrierung> {
+  await ensureReady()
+  const jetzt = Date.now()
+  const conn = await getPool().getConnection()
+
+  try {
+    await conn.beginTransaction()
+
+    /*
+     * Die laufende Aktion mit dem höchsten Betrag. `credits > grundguthaben`
+     * erspart jede Sonderbehandlung: was gefunden wird, zahlt immer mehr.
+     * FOR UPDATE sperrt genau die Zeile, an der alle gleichzeitigen
+     * Registrierungen hängen.
+     */
+    const aktionen: Record<string, unknown>[] = await conn.query(
+      `SELECT id, name, credits FROM aktionen
+        WHERE aktiv = 1 AND beginn <= ? AND ? < ende AND credits > ?
+          AND (max_einloesungen = 0 OR einloesungen < max_einloesungen)
+        ORDER BY credits DESC, id DESC
+        LIMIT 1
+        FOR UPDATE`,
+      [jetzt, jetzt, daten.grundguthaben],
+    )
+
+    let credits = daten.grundguthaben
+    let aktionId: number | null = null
+    let aktionName = ''
+
+    const treffer = aktionen[0]
+    if (treffer) {
+      const gedreht = await conn.query(
+        `UPDATE aktionen SET einloesungen = einloesungen + 1
+          WHERE id = ? AND aktiv = 1 AND beginn <= ? AND ? < ende
+            AND (max_einloesungen = 0 OR einloesungen < max_einloesungen)`,
+        [Number(treffer.id), jetzt, jetzt],
+      )
+      if (Number(gedreht.affectedRows) === 1) {
+        credits = Number(treffer.credits) || 0
+        aktionId = Number(treffer.id)
+        aktionName = String(treffer.name)
+      }
+    }
+
+    const ergebnis = await conn.query(
+      `INSERT INTO benutzer
+         (email, passwort, name, aktiv, credits, start_credits, start_aktion_id, angelegt_am)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
+      [daten.email, daten.passwortHash, daten.name, credits, credits, aktionId, jetzt],
+    )
+
+    await conn.commit()
+    return { id: Number(ergebnis.insertId), credits, aktion: aktionName }
   } catch (cause) {
     await conn.rollback()
     throw cause
@@ -1563,6 +1696,131 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
   } finally {
     conn.release()
   }
+}
+
+/* ── Aktionen ──────────────────────────────────────────────────────────── */
+
+function toAktion(row: Record<string, unknown>): Aktion {
+  return {
+    id: Number(row.id),
+    name: String(row.name),
+    credits: Number(row.credits) || 0,
+    beginn: Number(row.beginn) || 0,
+    ende: Number(row.ende) || 0,
+    aktiv: Number(row.aktiv) === 1,
+    maxEinloesungen: Number(row.max_einloesungen) || 0,
+    einloesungen: Number(row.einloesungen) || 0,
+    angelegtAm: Number(row.angelegt_am) || 0,
+  }
+}
+
+/** Alle Aktionen — laufende zuerst, denn nur die wirken gerade. */
+export async function listAktionen(): Promise<Aktion[]> {
+  await ensureReady()
+  const jetzt = Date.now()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT * FROM aktionen
+      ORDER BY (aktiv = 1 AND beginn <= ? AND ? < ende) DESC, beginn DESC`,
+    [jetzt, jetzt],
+  )
+  return rows.map(toAktion)
+}
+
+/**
+ * Die Aktion, die jetzt gilt und mehr gibt als der Grundbetrag — nur lesend.
+ *
+ * Bei mehreren gleichzeitig gewinnt der höchste Betrag; bei Gleichstand die
+ * zuletzt angelegte. Die Registrierungsseite nennt vorab eine Zahl, und die
+ * muss dieselbe sein, die anschließend gebucht wird — sonst wäre es ein
+ * gebrochenes Versprechen an genau der Stelle, an der jemand ein Konto anlegt.
+ */
+export async function findeAktiveAktion(grundguthaben: number): Promise<Aktion | null> {
+  await ensureReady()
+  const jetzt = Date.now()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT * FROM aktionen
+      WHERE aktiv = 1 AND beginn <= ? AND ? < ende AND credits > ?
+        AND (max_einloesungen = 0 OR einloesungen < max_einloesungen)
+      ORDER BY credits DESC, id DESC
+      LIMIT 1`,
+    [jetzt, jetzt, grundguthaben],
+  )
+  return rows[0] ? toAktion(rows[0]) : null
+}
+
+export interface AktionSpeichern {
+  name: string
+  credits: number
+  beginn: number
+  ende: number
+  aktiv: boolean
+  maxEinloesungen: number
+}
+
+export async function saveAktion(id: number | null, daten: AktionSpeichern): Promise<number> {
+  await ensureReady()
+
+  if (id === null) {
+    const ergebnis = await getPool().query(
+      `INSERT INTO aktionen
+         (name, credits, beginn, ende, aktiv, max_einloesungen, angelegt_am)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        daten.name,
+        daten.credits,
+        daten.beginn,
+        daten.ende,
+        daten.aktiv ? 1 : 0,
+        daten.maxEinloesungen,
+        Date.now(),
+      ],
+    )
+    return Number(ergebnis.insertId)
+  }
+
+  // `einloesungen` bleibt unangetastet — das ist ein Zähler, kein Formularfeld.
+  await getPool().query(
+    `UPDATE aktionen SET name = ?, credits = ?, beginn = ?, ende = ?, aktiv = ?,
+            max_einloesungen = ?
+      WHERE id = ?`,
+    [
+      daten.name,
+      daten.credits,
+      daten.beginn,
+      daten.ende,
+      daten.aktiv ? 1 : 0,
+      daten.maxEinloesungen,
+      id,
+    ],
+  )
+  return id
+}
+
+/**
+ * Löschen nur, solange nichts daran hängt.
+ *
+ * Sobald eine Aktion eingelöst wurde, ist sie der Beleg dafür, woher fremdes
+ * Guthaben kam — den wegzuwerfen hieße, eine Buchung unerklärbar zu machen.
+ * Der Weg für „soll nicht mehr gelten" heißt `aktiv = 0`.
+ */
+export async function deleteAktion(id: number): Promise<'ok' | 'nicht-gefunden' | 'in-benutzung'> {
+  await ensureReady()
+
+  const rows: Record<string, unknown>[] = await getPool().query(
+    'SELECT einloesungen FROM aktionen WHERE id = ?',
+    [id],
+  )
+  if (!rows[0]) return 'nicht-gefunden'
+  if (Number(rows[0].einloesungen) > 0) return 'in-benutzung'
+
+  const genutzt: Record<string, unknown>[] = await getPool().query(
+    'SELECT 1 FROM benutzer WHERE start_aktion_id = ? LIMIT 1',
+    [id],
+  )
+  if (genutzt[0]) return 'in-benutzung'
+
+  await getPool().query('DELETE FROM aktionen WHERE id = ?', [id])
+  return 'ok'
 }
 
 /* ── Zielgruppen ───────────────────────────────────────────────────────── */

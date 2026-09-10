@@ -1,4 +1,5 @@
 export type {
+  Aktion,
   Benutzer,
   BenutzerEintrag,
   Bestellung,
@@ -7,6 +8,7 @@ export type {
   KatalogVideo,
   Paket,
   PaketInhalt,
+  StartguthabenInfo,
   Video,
   Zahlweg,
 } from '@shared/types'

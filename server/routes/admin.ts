@@ -9,6 +9,7 @@ import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   bucheBestellung,
   deleteAdmin,
+  deleteAktion,
   deleteBereich,
   deleteZielgruppe,
   deleteBenutzer,
@@ -17,6 +18,7 @@ import {
   findAdmin,
   findBenutzerById,
   listAdmins,
+  listAktionen,
   listBereiche,
   listPaketeMitVideos,
   listZielgruppenMitInhalt,
@@ -24,6 +26,7 @@ import {
   listBestellungen,
   listPakete,
   listVideos,
+  saveAktion,
   saveBenutzer,
   saveBereich,
   savePaket,
@@ -676,6 +679,81 @@ adminRouter.delete('/admins/:benutzer', async (req, res) => {
 
   await deleteAdmin(key)
   destroySessionsFor('admin', key)
+  res.json({ ok: true })
+})
+
+// ── Aktionen ───────────────────────────────────────────────────────────────
+
+/**
+ * Aktionszeiträume fürs Startguthaben.
+ *
+ * Wer sich im Fenster registriert, bekommt den hier hinterlegten Betrag statt
+ * des Grundguthabens aus START_CREDITS. Laufende Aktionen stehen oben.
+ */
+adminRouter.get('/aktionen', async (_req, res) => {
+  res.json(await listAktionen())
+})
+
+adminRouter.put('/aktionen', async (req, res) => {
+  const body = req.body ?? {}
+  const id = body.id == null ? null : Number(body.id)
+  const name = String(body.name ?? '').trim().slice(0, 128)
+
+  if (!name) {
+    res.status(400).json({ error: 'Der Name ist Pflicht.' })
+    return
+  }
+
+  const credits = Math.floor(Number(body.credits))
+  if (!Number.isFinite(credits) || credits < 0) {
+    res.status(400).json({ error: 'Der Betrag muss eine Zahl ab 0 sein.' })
+    return
+  }
+
+  const beginn = Number(body.beginn)
+  const ende = Number(body.ende)
+  if (!Number.isFinite(beginn) || !Number.isFinite(ende)) {
+    res.status(400).json({ error: 'Bitte Beginn und Ende angeben.' })
+    return
+  }
+  /*
+   * `ende` gilt ausschließend — ein Fenster, das endet, bevor es beginnt, wäre
+   * still wirkungslos statt erkennbar falsch.
+   */
+  if (ende <= beginn) {
+    res.status(400).json({ error: 'Das Ende muss nach dem Beginn liegen.' })
+    return
+  }
+
+  const maxEinloesungen = Math.max(0, Math.floor(Number(body.maxEinloesungen)) || 0)
+
+  const aktionId = await saveAktion(id, {
+    name,
+    credits,
+    beginn,
+    ende,
+    aktiv: body.aktiv !== false,
+    maxEinloesungen,
+  })
+  res.json({ id: aktionId })
+})
+
+adminRouter.delete('/aktionen/:id', async (req, res) => {
+  const ergebnis = await deleteAktion(Number(req.params.id))
+
+  if (ergebnis === 'nicht-gefunden') {
+    res.status(404).json({ error: 'Aktion nicht gefunden.' })
+    return
+  }
+  if (ergebnis === 'in-benutzung') {
+    res.status(409).json({
+      error:
+        'Diese Aktion wurde bereits eingelöst und bleibt als Beleg erhalten. ' +
+        'Bitte stattdessen deaktivieren.',
+    })
+    return
+  }
+
   res.json({ ok: true })
 })
 
