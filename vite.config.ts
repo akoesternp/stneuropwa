@@ -8,6 +8,15 @@ export default defineConfig({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
+
+      /*
+       * Ohne das erzeugt das Plugin im Entwicklungsmodus GAR KEINEN Service
+       * Worker — unter `npm run dev` bleibt der Bereich in den
+       * Entwicklerwerkzeugen dann leer, und es sieht aus, als wäre die PWA
+       * nicht eingerichtet. Genau dieser Eindruck ist im Review entstanden;
+       * im Build war der Worker die ganze Zeit vorhanden.
+       */
+      devOptions: { enabled: true, type: 'module' },
       workbox: {
         /*
          * Ohne diese Ausnahme beantwortet der Service Worker JEDE Navigation
@@ -37,8 +46,24 @@ export default defineConfig({
         display: 'standalone',
         background_color: '#FBFAFC',
         theme_color: '#182142',
+        /*
+         * Vier Einträge mit verschiedenen Aufgaben:
+         *
+         * Das SVG skaliert verlustfrei und bedient alles, was damit umgehen
+         * kann. Die beiden PNG sind für die Systeme, die es nicht können —
+         * Android nimmt für den Startbildschirm 192 und 512.
+         *
+         * `maskable` steht NUR am eigens dafür gebauten Bild: ein
+         * maskierbares Symbol braucht rundum etwa 20 % Sicherheitsrand, weil
+         * das System eine beliebige Form daraus schneidet. Das randlose
+         * Grundsymbol als maskable auszugeben hieße zuzusagen, dass es
+         * beschnitten werden darf — und dann fehlt außen etwas.
+         */
         icons: [
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
+          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),

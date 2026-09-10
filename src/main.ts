@@ -1,10 +1,30 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { registerSW } from 'virtual:pwa-register'
 import App from './App.vue'
 import router from './router'
 import { setUnauthorizedHandler } from './api/client'
 import { useAuthStore } from './stores/auth'
 import '@/assets/styles/base.css'
+
+/*
+ * Den Service Worker ausdrücklich anmelden, statt das Plugin ein Skript
+ * einspielen zu lassen.
+ *
+ * Das eingespielte Skript entsteht nur beim Build — im Entwicklungsmodus gäbe
+ * es also gar keine Anmeldung, obwohl der Worker dort (dank devOptions)
+ * ausgeliefert wird. Genau diese Lücke ließ die PWA im Review wie „nicht
+ * vorhanden" aussehen. Mit diesem Aufruf gilt beides, Entwicklung wie Build;
+ * das Plugin erkennt ihn und spielt dann nichts mehr zusätzlich ein.
+ *
+ * `autoUpdate` heißt: ein neuer Stand übernimmt sich selbst. Die Rückrufe
+ * schreiben nur ins Protokoll, damit man beim Suchen sieht, was passiert ist.
+ */
+registerSW({
+  immediate: true,
+  onRegisteredSW: (pfad) => console.info(`[PWA] Service Worker angemeldet: ${pfad}`),
+  onRegisterError: (fehler) => console.error('[PWA] Anmeldung fehlgeschlagen:', fehler),
+})
 
 const app = createApp(App).use(createPinia())
 const auth = useAuthStore()
