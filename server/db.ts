@@ -900,6 +900,17 @@ export async function deleteBenutzer(id: number): Promise<void> {
      */
     await conn.query('DELETE FROM video_sterne WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM kommentare WHERE benutzer_id = ?', [id])
+
+    /*
+     * Bestellungen und Guthabenbuchungen bleiben ABSICHTLICH stehen.
+     *
+     * Sie sind Zahlungsbelege und unterliegen den Aufbewahrungsfristen; wer
+     * sie mit dem Konto löscht, kann später nicht mehr belegen, wofür Geld
+     * geflossen ist. Personenbezogen bleibt danach nichts: Name und Adresse
+     * verschwinden mit der Benutzerzeile, zurück bleibt eine Nummer, die auf
+     * niemanden mehr zeigt — in der Verwaltungsliste steht dort „—".
+     */
+
     await conn.query('DELETE FROM benutzer WHERE id = ?', [id])
     await conn.commit()
   } catch (cause) {
