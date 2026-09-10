@@ -19,14 +19,12 @@ async function toBenutzer(row: {
   email: string
   name: string
   credits: number
-  moderator: boolean
 }): Promise<Benutzer> {
   return {
     id: row.id,
     email: row.email,
     name: row.name,
     credits: row.credits,
-    moderator: row.moderator,
     pakete: await paketNamenFuer(row.id),
   }
 }
@@ -148,7 +146,7 @@ authRouter.post('/registrieren', async (req, res) => {
   // muss, ist eine überflüssige Hürde.
   createSession(res, 'user', String(konto.id), false)
   res.json({
-    user: { id: konto.id, email, name, pakete: [], credits: konto.credits, moderator: false },
+    user: { id: konto.id, email, name, pakete: [], credits: konto.credits },
     // Damit die Seite sagen kann, WOFÜR das Guthaben da ist.
     aktion: konto.aktion || null,
   })

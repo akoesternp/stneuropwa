@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import VideoKommentare from '@/views/admin/VideoKommentare.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
@@ -134,7 +135,10 @@ async function load() {
   ])
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void ladeKommentarstand()
+})
 
 function startNew() {
   notice.value = null
@@ -189,6 +193,31 @@ function startEdit(row: Video) {
  * nachgebautes Overlay von Hand bräuchte: Tastaturfokus bleibt darin gefangen,
  * Escape schließt, der Hintergrund ist für Screenreader stillgelegt.
  */
+/*
+ * Der Kommentarstrang je Übung — hier, weil die Beiträge zu einem Video
+ * gehören und der Betreiber sie mit dem Video vor Augen bearbeiten soll.
+ * Antworten schreibt er dort, nicht im Portal.
+ */
+const kommentareZu = ref<Video | null>(null)
+
+/** Wie viele Beiträge je Übung warten — für die Zahl am Knopf. */
+const offeneJeVideo = ref<Record<number, number>>({})
+
+async function ladeKommentarstand(): Promise<void> {
+  try {
+    const alle = await api.get<{ videoId: number; status: string }[]>('/admin/kommentare')
+    const karte: Record<number, number> = {}
+    for (const eintrag of alle) {
+      if (eintrag.status !== 'offen') continue
+      karte[eintrag.videoId] = (karte[eintrag.videoId] ?? 0) + 1
+    }
+    offeneJeVideo.value = karte
+  } catch {
+    // Ohne diese Zahl fehlt nur ein Hinweis, nicht die Funktion.
+    offeneJeVideo.value = {}
+  }
+}
+
 const dialogEl = ref<HTMLDialogElement | null>(null)
 
 /** Solange etwas läuft, darf die Maske nicht verschwinden — sonst wäre es weg. */
@@ -698,12 +727,25 @@ async function remove(row: Video) {
         <span :class="row.aktiv ? 'ok' : 'flag'">{{ row.aktiv ? 'aktiv' : 'inaktiv' }}</span>
         <div class="row-actions">
           <GButton variant="ghost" size="sm" @click="startEdit(row)">Bearbeiten</GButton>
+          <!-- Die Zahl nennt die WARTENDEN, nicht alle: sie ist ein Hinweis
+               auf Arbeit, keine Statistik. -->
+          <GButton variant="ghost" size="sm" @click="kommentareZu = row">
+            Beiträge<template v-if="offeneJeVideo[row.id]"> ({{ offeneJeVideo[row.id] }})</template>
+          </GButton>
           <GButton variant="outline" size="sm" danger @click="remove(row)">Löschen</GButton>
         </div>
       </template>
 
       <template #empty>Noch keine Videos angelegt.</template>
     </DataTable>
+
+    <VideoKommentare
+      :offen="kommentareZu !== null"
+      :video-id="kommentareZu?.id ?? null"
+      :video-titel="kommentareZu?.titel ?? ''"
+      @schliessen="kommentareZu = null"
+      @geaendert="ladeKommentarstand"
+    />
   </section>
 </template>
 

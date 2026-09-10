@@ -37,7 +37,6 @@ const id = await saveBenutzer(null, {
   paketIds: [],
   videoIds: [],
   credits,
-  moderator: false,
 })
 
 console.log(`Nutzer angelegt: ${normalisiert} (id ${id}, ${credits} Credits)`)

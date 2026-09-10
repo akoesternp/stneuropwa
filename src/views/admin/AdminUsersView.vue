@@ -25,8 +25,6 @@ interface Editor {
   videoIds: number[]
   /** Guthaben in Credits. Im Formular Text, damit sich das Feld leeren lässt. */
   credits: string
-  /** Moderationsrecht im Portal — unabhängig vom Backend-Zugang. */
-  moderator: boolean
 }
 
 const editing = ref<Editor | null>(null)
@@ -41,7 +39,6 @@ const columns: Column[] = [
   { label: 'Name', width: 'minmax(160px,1fr)' },
   { label: 'Pakete', width: 'minmax(180px,1fr)' },
   { label: 'Neuro', align: 'right', width: '90px' },
-  { label: 'Moderation', width: '110px' },
   { label: 'Status', width: '110px' },
   { width: '210px' },
 ]
@@ -100,7 +97,6 @@ function startNew() {
     paketIds: [],
     videoIds: [],
     credits: '0',
-    moderator: false,
   }
 }
 
@@ -114,7 +110,6 @@ function startEdit(row: BenutzerEintrag) {
     paketIds: [...row.paketIds],
     videoIds: [...row.videoIds],
     credits: String(row.credits),
-    moderator: row.moderator,
   }
 }
 
@@ -161,7 +156,6 @@ async function save() {
       paketIds: editing.value.paketIds,
       videoIds: editing.value.videoIds,
       credits: guthaben.value,
-      moderator: editing.value.moderator,
     })
     await load()
     notice.value = `${editing.value.email} gespeichert.`
@@ -290,16 +284,6 @@ async function remove(row: BenutzerEintrag) {
         Zugang aktiv — ohne Haken ist die Anmeldung gesperrt
       </label>
 
-      <!--
-        Ein Recht am PORTALKONTO, kein Backend-Zugang. Wer es hat, gibt
-        Beiträge direkt unter der Übung frei und schreibt dort als Betreiber —
-        ohne sich hier anzumelden.
-      -->
-      <label class="aktiv">
-        <input v-model="editing.moderator" type="checkbox" />
-        Moderation im Portal — Beiträge freigeben und als Betreiber antworten
-      </label>
-
       <div class="editor-actions">
         <GButton :disabled="busy" @click="save">Speichern</GButton>
         <GButton variant="outline" :disabled="busy" @click="editing = null">Abbrechen</GButton>
@@ -312,7 +296,6 @@ async function remove(row: BenutzerEintrag) {
         <span class="muted t-truncate">{{ row.name || '—' }}</span>
         <span class="muted t-truncate">{{ paketNamen(row) }}</span>
         <span class="credits">{{ row.credits }}</span>
-        <span :class="row.moderator ? 'ok' : 'muted'">{{ row.moderator ? 'ja' : '—' }}</span>
         <span :class="row.aktiv ? 'ok' : 'flag'">{{ row.aktiv ? 'aktiv' : 'gesperrt' }}</span>
         <div class="row-actions">
           <GButton variant="ghost" size="sm" @click="startEdit(row)">Bearbeiten</GButton>

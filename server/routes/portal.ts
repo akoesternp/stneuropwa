@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { Router } from 'express'
 import type { Response } from 'express'
 import { creditPaket, KOMMENTAR_MAX_ZEICHEN } from '../../shared/types.js'
-import type { KommentarStatus, Zahlweg } from '../../shared/types.js'
+import type { Zahlweg } from '../../shared/types.js'
 import {
   bucheBestellung,
   darfVideoSehen,
@@ -14,7 +14,6 @@ import {
   kaufePaket,
   kaufeVideo,
   katalogVideos,
-  istModerator,
   kommentareZuVideo,
   listBereiche,
   listBestellungenFuer,
@@ -24,7 +23,6 @@ import {
   loescheSterne,
   merkeAnbieterReferenz,
   paketInhalte,
-  setzeKommentarStatus,
   setzeSterne,
   speichereFortschritt,
   speichereKommentar,
@@ -376,8 +374,7 @@ portalRouter.get('/videos/:id/kommentare', async (req, res) => {
     return
   }
 
-  const moderiert = benutzerId !== null && (await istModerator(benutzerId))
-  res.json(await kommentareZuVideo(videoId, benutzerId, moderiert))
+  res.json(await kommentareZuVideo(videoId, benutzerId))
 })
 
 /**
@@ -441,11 +438,7 @@ portalRouter.post('/videos/:id/kommentare', requireUser, async (req, res) => {
     res.status(404).json({ error: 'Übung nicht gefunden.' })
     return
   }
-  /*
-   * Ein Moderator darf überall antworten — sonst könnte er ausgerechnet dort
-   * nicht helfen, wo jemand nach einer noch gesperrten Übung fragt.
-   */
-  if (!(await istModerator(benutzerId)) && !(await darfVideoSehen(videoId, benutzerId))) {
+  if (!(await darfVideoSehen(videoId, benutzerId))) {
     res.status(403).json({
       error: 'Schreiben können Sie nur unter Übungen, die für Sie freigeschaltet sind.',
     })
@@ -464,49 +457,13 @@ portalRouter.post('/videos/:id/kommentare', requireUser, async (req, res) => {
 })
 
 /**
- * Moderieren — als angemeldeter Nutzer mit Moderationsrecht.
+ * Einen eigenen Beitrag zurücknehmen. Fremde bleiben unantastbar.
  *
- * Bewusst hier und nicht im Backend: die beiden Rollen bleiben getrennt, und
- * wer prüft, tut das unter der Übung, wo der Beitrag steht. Eine zweite
- * Anmeldung für eine Handlung wäre eine Hürde ohne Gewinn.
+ * Geprüft und gelöscht wird sonst im Backend — hier schreiben Nutzer, dort
+ * entscheidet der Betreiber.
  */
-async function pruefe(
-  req: Parameters<Parameters<typeof portalRouter.post>[1]>[0],
-  res: Response,
-  status: KommentarStatus,
-): Promise<void> {
-  const benutzerId = Number(req.session!.subject)
-
-  if (!(await istModerator(benutzerId))) {
-    res.status(403).json({ error: 'Dafür fehlt Ihnen das Moderationsrecht.' })
-    return
-  }
-
-  if (!(await setzeKommentarStatus(Number(req.params.id), status))) {
-    res.status(404).json({ error: 'Beitrag nicht gefunden.' })
-    return
-  }
-
-  res.json({ ok: true })
-}
-
-portalRouter.post('/kommentare/:id/freigeben', requireUser, (req, res) =>
-  pruefe(req, res, 'freigegeben'),
-)
-
-portalRouter.post('/kommentare/:id/ablehnen', requireUser, (req, res) =>
-  pruefe(req, res, 'abgelehnt'),
-)
-
-/** Einen eigenen Beitrag zurücknehmen — als Moderator auch jeden fremden. */
 portalRouter.delete('/kommentare/:id', requireUser, async (req, res) => {
-  const benutzerId = Number(req.session!.subject)
-  const moderiert = await istModerator(benutzerId)
-
-  const erledigt = await loescheKommentar(
-    Number(req.params.id),
-    moderiert ? undefined : benutzerId,
-  )
+  const erledigt = await loescheKommentar(Number(req.params.id), Number(req.session!.subject))
   if (!erledigt) {
     res.status(404).json({ error: 'Beitrag nicht gefunden.' })
     return

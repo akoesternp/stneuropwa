@@ -142,15 +142,12 @@ async function createSchema(): Promise<void> {
      * nächste Backend-Sitzung warten muss.
      */
     /*
-     * Moderationsrecht am PORTALKONTO — bewusst getrennt vom Backend-Zugang.
-     *
-     * Wer im Portal moderiert, tut das dort, wo er den Zusammenhang sieht: als
-     * angemeldeter Nutzer unter der Übung. Dafür die Backend-Sitzung zu
-     * verlangen, hieße zwei Anmeldungen für eine Handlung — und es verwischte
-     * die Trennung der beiden Rollen, die sonst überall gilt.
+     * Es gab kurzzeitig ein Moderationsrecht am Portalkonto. Moderiert wird
+     * jetzt ausschließlich im Backend, bei den Videos — die Spalte wäre nur
+     * noch ein Hinweis auf einen Weg, den es nicht mehr gibt.
      */
-    if (!benutzerSpalten.some((spalte) => spalte.Field === 'moderator')) {
-      await conn.query(`ALTER TABLE benutzer ADD COLUMN moderator TINYINT(1) NOT NULL DEFAULT 0`)
+    if (benutzerSpalten.some((spalte) => spalte.Field === 'moderator')) {
+      await conn.query(`ALTER TABLE benutzer DROP COLUMN moderator`)
     }
 
     if (!benutzerSpalten.some((spalte) => spalte.Field === 'kommentare_frei')) {
@@ -492,9 +489,10 @@ async function createSchema(): Promise<void> {
     )
 
     /*
-     * Nachträglich ergänzt: wer moderiert, schreibt jetzt als angemeldeter
-     * Nutzer statt über den Backend-Zugang — deshalb braucht der Beitrag ein
-     * eigenes Kennzeichen statt der bisherigen Ableitung aus „kein Verfasser".
+     * Dass ein Beitrag vom Betreiber stammt, steht als eigenes Kennzeichen am
+     * Beitrag — nicht als Ableitung aus „kein Verfasser". Das ist heute
+     * dasselbe, bleibt aber richtig, falls ein Beitrag später einmal einen
+     * Verfasser bekommt und trotzdem als Auskunft des Portals gelten soll.
      */
     const kommentarSpalten: { Field: string }[] = await conn.query(
       `SHOW COLUMNS FROM kommentare`,
@@ -539,8 +537,6 @@ export interface BenutzerRow {
   name: string
   aktiv: boolean
   credits: number
-  /** Darf Beiträge freigeben und als Betreiber schreiben. */
-  moderator: boolean
 }
 
 function toBenutzerRow(row: Record<string, unknown>): BenutzerRow {
@@ -551,14 +547,13 @@ function toBenutzerRow(row: Record<string, unknown>): BenutzerRow {
     name: String(row.name ?? ''),
     aktiv: Number(row.aktiv) === 1,
     credits: Number(row.credits) || 0,
-    moderator: Number(row.moderator) === 1,
   }
 }
 
 export async function findBenutzerByEmail(email: string): Promise<BenutzerRow | null> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, passwort, name, aktiv, credits, moderator FROM benutzer WHERE email = ?',
+    'SELECT id, email, passwort, name, aktiv, credits FROM benutzer WHERE email = ?',
     [email],
   )
   return rows[0] ? toBenutzerRow(rows[0]) : null
@@ -567,7 +562,7 @@ export async function findBenutzerByEmail(email: string): Promise<BenutzerRow | 
 export async function findBenutzerById(id: number): Promise<BenutzerRow | null> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, passwort, name, aktiv, credits, moderator FROM benutzer WHERE id = ?',
+    'SELECT id, email, passwort, name, aktiv, credits FROM benutzer WHERE id = ?',
     [id],
   )
   return rows[0] ? toBenutzerRow(rows[0]) : null
@@ -589,7 +584,7 @@ export async function paketNamenFuer(benutzerId: number): Promise<string[]> {
 export async function listBenutzer(): Promise<BenutzerEintrag[]> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
-    'SELECT id, email, name, aktiv, credits, moderator FROM benutzer ORDER BY email',
+    'SELECT id, email, name, aktiv, credits FROM benutzer ORDER BY email',
   )
   const pakete: { benutzer_id: number; paket_id: number }[] = await getPool().query(
     'SELECT benutzer_id, paket_id FROM benutzer_pakete',
@@ -618,7 +613,6 @@ export async function listBenutzer(): Promise<BenutzerEintrag[]> {
     name: String(row.name ?? ''),
     aktiv: Number(row.aktiv) === 1,
     credits: Number(row.credits) || 0,
-    moderator: Number(row.moderator) === 1,
     paketIds: paketeVon.get(Number(row.id)) ?? [],
     videoIds: videosVon.get(Number(row.id)) ?? [],
   }))
@@ -634,8 +628,6 @@ export interface BenutzerSpeichern {
   videoIds: number[]
   /** Guthaben in Credits — im Backend frei setzbar, nie negativ. */
   credits: number
-  /** Moderationsrecht im Portal. */
-  moderator: boolean
 }
 
 /**
@@ -651,15 +643,14 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
     let benutzerId: number
     if (id === null) {
       const result = await conn.query(
-        `INSERT INTO benutzer (email, passwort, name, aktiv, credits, moderator, angelegt_am)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO benutzer (email, passwort, name, aktiv, credits, angelegt_am)
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [
           daten.email,
           daten.passwortHash ?? '',
           daten.name,
           daten.aktiv ? 1 : 0,
           daten.credits,
-          daten.moderator ? 1 : 0,
           Date.now(),
         ],
       )
@@ -667,19 +658,11 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
     } else {
       benutzerId = id
       await conn.query(
-        `UPDATE benutzer SET email = ?, name = ?, aktiv = ?, credits = ?, moderator = ?
+        `UPDATE benutzer SET email = ?, name = ?, aktiv = ?, credits = ?
          ${daten.passwortHash ? ', passwort = ?' : ''} WHERE id = ?`,
         daten.passwortHash
-          ? [
-              daten.email,
-              daten.name,
-              daten.aktiv ? 1 : 0,
-              daten.credits,
-              daten.moderator ? 1 : 0,
-              daten.passwortHash,
-              id,
-            ]
-          : [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, daten.moderator ? 1 : 0, id],
+          ? [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, daten.passwortHash, id]
+          : [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, id],
       )
     }
 
@@ -2349,7 +2332,6 @@ function toKommentar(row: Record<string, unknown>): Kommentar {
 export async function kommentareZuVideo(
   videoId: number,
   benutzerId: number | null,
-  alsModerator = false,
 ): Promise<KommentarBereich> {
   await ensureReady()
 
@@ -2367,22 +2349,17 @@ export async function kommentareZuVideo(
         )
 
   /*
-   * Ein Moderator sieht alles, auch fremde offene Beiträge — er soll dort
-   * prüfen, wo der Zusammenhang steht. Alle anderen sehen Freigegebenes und
-   * ihre eigenen; abgelehnte Beiträge bleiben auch dem Verfasser sichtbar,
-   * damit er die Entscheidung nachvollziehen kann.
+   * Öffentlich sind nur freigegebene Beiträge. Die EIGENEN kommen mit, auch
+   * die noch offenen — sonst schriebe jemand ein zweites Mal, weil er seinen
+   * ersten nicht sieht.
    */
-  const zeilen: Record<string, unknown>[] = alsModerator
-    ? await getPool().query('SELECT * FROM kommentare WHERE video_id = ? ORDER BY angelegt_am', [
-        videoId,
-      ])
-    : await getPool().query(
-        `SELECT * FROM kommentare
-          WHERE video_id = ?
-            AND (status = 'freigegeben' ${benutzerId === null ? '' : 'OR benutzer_id = ?'})
-          ORDER BY angelegt_am`,
-        benutzerId === null ? [videoId] : [videoId, benutzerId],
-      )
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    `SELECT * FROM kommentare
+      WHERE video_id = ?
+        AND (status = 'freigegeben' ${benutzerId === null ? '' : 'OR benutzer_id = ?'})
+      ORDER BY angelegt_am`,
+    benutzerId === null ? [videoId] : [videoId, benutzerId],
+  )
 
   /*
    * Eine Antwort ist nur sichtbar, wenn ihr Beitrag es ist. Sonst stünde unter
@@ -2440,20 +2417,15 @@ export async function speichereKommentar(
 
   let name = ''
   let sofort = true
-  let alsTeam = benutzerId === null
+  // Kein Verfasser heißt: aus dem Backend geschrieben, also vom Betreiber.
+  const alsTeam = benutzerId === null
   if (benutzerId !== null) {
     const konten: Record<string, unknown>[] = await getPool().query(
-      'SELECT name, kommentare_frei, moderator FROM benutzer WHERE id = ?',
+      'SELECT name, kommentare_frei FROM benutzer WHERE id = ?',
       [benutzerId],
     )
-    /*
-     * Ein Moderator schreibt als Betreiber und braucht keine Prüfung — er ist
-     * derjenige, der prüft. Sein Name bleibt trotzdem am Datensatz, damit im
-     * Backend nachvollziehbar ist, wer geantwortet hat.
-     */
-    alsTeam = Number(konten[0]?.moderator) === 1
-    name = alsTeam ? '' : anzeigeName(String(konten[0]?.name ?? ''))
-    sofort = alsTeam || Number(konten[0]?.kommentare_frei) === 1
+    name = anzeigeName(String(konten[0]?.name ?? ''))
+    sofort = Number(konten[0]?.kommentare_frei) === 1
   }
 
   const jetzt = Date.now()
@@ -2584,19 +2556,32 @@ export async function loescheKommentar(id: number, benutzerId?: number): Promise
 }
 
 /**
- * Darf dieses Konto moderieren?
+ * Alle Beiträge zu EINER Übung — die Sicht der Verwaltung.
  *
- * Eigene Abfrage statt eines Felds in der Sitzung: das Recht kann entzogen
- * werden, und dann soll es sofort gelten — nicht erst nach der nächsten
- * Anmeldung. Dasselbe Muster wie beim Backend-Zugang.
+ * Anders als der öffentliche Weg ohne Statusfilter: hier soll man sehen, was
+ * noch wartet und was abgelehnt wurde. Die E-Mail darf mit, die Liste liegt
+ * hinter requireAdmin.
  */
-export async function istModerator(benutzerId: number): Promise<boolean> {
+export async function kommentareZuVideoFuerAdmin(videoId: number): Promise<KommentarEintrag[]> {
   await ensureReady()
   const zeilen: Record<string, unknown>[] = await getPool().query(
-    'SELECT moderator FROM benutzer WHERE id = ? AND aktiv = 1',
-    [benutzerId],
+    `SELECT k.*, u.email, v.titel AS video_titel
+       FROM kommentare k
+       LEFT JOIN benutzer u ON u.id = k.benutzer_id
+       LEFT JOIN videos v ON v.id = k.video_id
+      WHERE k.video_id = ?
+      ORDER BY k.angelegt_am`,
+    [videoId],
   )
-  return Number(zeilen[0]?.moderator) === 1
+
+  return zeilen.map((zeile) => ({
+    ...toKommentar(zeile),
+    videoId: Number(zeile.video_id),
+    videoTitel: String(zeile.video_titel ?? '—'),
+    benutzerId: zeile.benutzer_id === null ? null : Number(zeile.benutzer_id),
+    email: String(zeile.email ?? '—'),
+    geprueftAm: zeile.geprueft_am === null ? null : Number(zeile.geprueft_am),
+  }))
 }
 
 /** Alle Wertungen einer Übung — nur für die Verwaltung. */
