@@ -79,9 +79,17 @@ export default defineConfig({
     // damit Vite nicht stillschweigend doch dorthin ausweicht.
     port: 5174,
     strictPort: true,
-    // Die API lebt auf dem Node-Server; in der Entwicklung leitet Vite dorthin.
+    /*
+     * Die API lebt auf dem Node-Server; in der Entwicklung leitet Vite dorthin.
+     * Der Port steht bewusst nicht zweimal fest verdrahtet: wer den Server auf
+     * einem anderen Port fährt (PORT=3005 npm run dev:server), setzt hier
+     * dasselbe über API_PORT und muss die Datei nicht anfassen.
+     */
     proxy: {
-      '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      '/api': {
+        target: `http://localhost:${process.env.API_PORT ?? 3001}`,
+        changeOrigin: true,
+      },
     },
   },
 })

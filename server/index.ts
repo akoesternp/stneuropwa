@@ -78,7 +78,22 @@ if (existsSync(DIST_DIR)) {
   })
 }
 
-const server = app.listen(PORT, HOST, () => {
+/*
+ * Der Rückruf von app.listen ist in Express 5 zugleich die Fehlerbehandlung:
+ * intern hängt Express ihn als server.once('error', …) ein (application.js).
+ * Bei belegtem Port meldete diese Zeile deshalb „Server läuft" — und weil ein
+ * error-Zuhörer vorhanden ist, bricht Node auch nicht ab. Zurück blieb ein
+ * Prozess ohne Socket, der so tut, als bediene er den Port. Wer dann eine
+ * Änderung am Server nicht wiederfindet, sucht sie an der falschen Stelle.
+ */
+const server = app.listen(PORT, HOST, (fehler?: Error) => {
+  if (fehler) {
+    console.error(
+      `Port ${PORT} lässt sich nicht belegen: ${fehler.message}\n` +
+        'Läuft der Server vielleicht schon? Sonst PORT auf einen freien Wert setzen.',
+    )
+    process.exit(1)
+  }
   console.log(`stneuro-Server läuft auf http://${HOST}:${PORT}`)
 })
 
