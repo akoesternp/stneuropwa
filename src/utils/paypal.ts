@@ -19,6 +19,8 @@ export interface PaypalButtons {
 export interface PaypalSdk {
   Buttons(optionen: {
     style?: Record<string, string>
+    /** Beschränkt den Aufbau auf genau eine Zahlungsquelle. */
+    fundingSource?: 'paypal'
     createOrder: () => Promise<string>
     onApprove: (daten: { orderID: string }) => Promise<void>
     onCancel?: () => void
@@ -50,9 +52,14 @@ export function ladePaypal(clientId: string): Promise<PaypalSdk> {
       currency: 'EUR',
       intent: 'capture',
       locale: 'de_DE',
-      // Ohne das bietet PayPal auch Ratenzahlung und Karten an — hier soll
-      // genau ein Knopf stehen, damit der Ablauf überschaubar bleibt.
-      'disable-funding': 'card,sofort,giropay',
+      /*
+       * Spart das Nachladen dessen, was ohnehin nicht angeboten wird. Die
+       * Beschränkung selbst hängt aber NICHT hieran: eine Ausschlussliste
+       * ist beim nächsten Zahlungsverfahren, das PayPal aufnimmt, wieder
+       * unvollständig — so kam die Lastschrift zu ihrem eigenen Knopf.
+       * Verbindlich ist fundingSource beim Aufbau des Knopfes.
+       */
+      'disable-funding': 'card,credit,paylater,sepa,bancontact,blik,eps,ideal,mybank,p24,venmo',
     })
     skript.src = `https://www.paypal.com/sdk/js?${parameter}`
     skript.async = true

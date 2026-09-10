@@ -120,6 +120,12 @@ watch([gewaehlt, zustimmung, paypalZiel], async ([stufe, zugestimmt, ziel]) => {
     const sdk = await ladePaypal(bestellungen.konfig!.paypal.clientId)
 
     paypalKnoepfe = sdk.Buttons({
+      /*
+       * Genau ein Knopf, und zwar die PayPal-Zahlung selbst. Ohne diese
+       * Festlegung baut das SDK für jede zulässige Zahlungsquelle einen
+       * eigenen Knopf auf — zuletzt einen zweiten für die Lastschrift.
+       */
+      fundingSource: 'paypal',
       style: { layout: 'vertical', shape: 'pill', label: 'paypal', height: 46 } as never,
 
       createOrder: async () => {
