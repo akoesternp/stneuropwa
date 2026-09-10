@@ -331,6 +331,14 @@ onBeforeUnmount(() => {
       <p v-if="credits.hinweis" class="quittung" role="status">{{ credits.hinweis }}</p>
 
       <!--
+        Zwei Spalten: links das Video mit allem, was direkt dazugehört, rechts
+        der Steckbrief samt Paketreihe. Nebeneinander statt untereinander, weil
+        man beim Abspielen nachsehen will, was als Nächstes kommt — dafür soll
+        niemand scrollen müssen.
+      -->
+      <div class="hauptbereich">
+        <div class="links">
+      <!--
         Gesperrt: kein Player, aber alles andere bleibt stehen. Titel,
         Beschreibung und der Block „Gehört zu" sind genau das, was jemand
         braucht, der über die Suche hier gelandet ist.
@@ -396,10 +404,10 @@ onBeforeUnmount(() => {
         </p>
       </div>
 
-      <div class="unten">
-        <div v-if="video.beschreibung" class="anleitung">
-          <h2 class="t-eyebrow">So geht die Übung</h2>
-          <p class="beschreibung">{{ video.beschreibung }}</p>
+          <div v-if="video.beschreibung" class="anleitung">
+            <h2 class="t-eyebrow">So geht die Übung</h2>
+            <p class="beschreibung">{{ video.beschreibung }}</p>
+          </div>
         </div>
 
         <aside class="steckbrief">
@@ -574,11 +582,12 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Breiter als vorher: die Seite trägt jetzt zwei Spalten statt einer. */
 .player {
   display: flex;
   flex-direction: column;
   gap: var(--section-gap);
-  max-width: 1100px;
+  max-width: 1320px;
 }
 
 .head {
@@ -784,15 +793,31 @@ a.reihe-eintrag:hover {
  * Anleitung und Steckbrief nebeneinander: beim Üben schaut man auf das Video
  * und liest daneben mit, statt darunter zu scrollen. Unter 900 px stapelt es.
  */
-.unten {
+.hauptbereich {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   gap: 24px;
   align-items: start;
 }
 
-@media (max-width: 900px) {
-  .unten {
+/*
+ * Die linke Spalte trägt Video und Beschreibung untereinander. Der Steckbrief
+ * daneben beginnt oben und darf länger werden als das Video — bei einem Paket
+ * mit vielen Übungen ist er das regelmäßig.
+ */
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  min-width: 0;
+}
+
+/*
+ * Erst bei 1000 px stapeln, nicht bei 900: mit 320 px für den Steckbrief
+ * bliebe dem Video darunter sonst zu wenig Breite, um noch als Video zu wirken.
+ */
+@media (max-width: 1000px) {
+  .hauptbereich {
     grid-template-columns: 1fr;
   }
 }

@@ -454,6 +454,14 @@ export interface Benutzer {
    * lassen. Ein neues Konto startet bei 0.
    */
   credits: number
+  /**
+   * Moderationsrecht im Portal: Beiträge freigeben, ablehnen, löschen und als
+   * Betreiber antworten.
+   *
+   * Ein Recht am PORTALKONTO, nicht am Backend-Zugang — moderiert wird dort,
+   * wo der Zusammenhang steht, ohne eine zweite Anmeldung.
+   */
+  moderator: boolean
 }
 
 /** Ein Nutzer aus Sicht der Verwaltung (Backend). */
@@ -468,4 +476,6 @@ export interface BenutzerEintrag {
   videoIds: number[]
   /** Guthaben in Credits. Im Backend frei setzbar. */
   credits: number
+  /** Moderationsrecht im Portal. */
+  moderator: boolean
 }

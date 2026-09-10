@@ -33,8 +33,18 @@ const antwortAuf = ref<number | null>(null)
 const antwortText = ref('')
 const busy = ref(false)
 
-/** Darf schreiben, wer angemeldet ist UND die Übung hat. */
-const darfSchreiben = computed(() => auth.isAuthenticated && props.freigeschaltet)
+/**
+ * Moderationsrecht am eigenen Portalkonto — nicht die Backend-Sitzung.
+ *
+ * Die beiden Rollen sind getrennt: wer hier moderiert, ist als Nutzer
+ * angemeldet und braucht keinen zweiten Zugang.
+ */
+const moderiert = computed(() => auth.user?.moderator === true)
+
+/** Schreiben darf, wer die Übung hat — ein Moderator überall. */
+const darfSchreiben = computed(
+  () => auth.isAuthenticated && (props.freigeschaltet || moderiert.value),
+)
 
 /** Beiträge in der Wurzel; Antworten hängen darunter. */
 const beitraege = computed(() =>
@@ -94,27 +104,23 @@ async function wertungZuruecknehmen(): Promise<void> {
 }
 
 /**
- * Schreiben — als Nutzer oder, bei aktiver Backend-Sitzung, als Betreiber.
+ * Schreiben — immer über das Portal, nie über das Backend.
  *
- * Beide Rollen haben eigene Cookies und können gleichzeitig angemeldet sein.
- * Wer im Backend angemeldet ist, antwortet hier direkt, wo er den
- * Zusammenhang sieht, statt in einer Liste ohne Kontext.
+ * Ob der Beitrag als Betreiber gilt und sofort erscheint, entscheidet der
+ * Server am Moderationsrecht des Kontos. Die Oberfläche schickt für alle
+ * dasselbe.
  */
-async function senden(inhalt: string, elternId: number | null, alsTeam: boolean): Promise<void> {
+async function senden(inhalt: string, elternId: number | null): Promise<void> {
   if (!inhalt.trim()) return
 
   busy.value = true
   fehler.value = null
   hinweis.value = null
   try {
-    const pfad = alsTeam
-      ? `/admin/videos/${props.videoId}/kommentare`
-      : `/portal/videos/${props.videoId}/kommentare`
-
-    const ergebnis = await api.post<{ id: number; sichtbar?: boolean }>(pfad, {
-      text: inhalt.trim(),
-      elternId,
-    })
+    const ergebnis = await api.post<{ id: number; sichtbar?: boolean }>(
+      `/portal/videos/${props.videoId}/kommentare`,
+      { text: inhalt.trim(), elternId },
+    )
 
     if (ergebnis.sichtbar === false) {
       hinweis.value =
@@ -132,11 +138,29 @@ async function senden(inhalt: string, elternId: number | null, alsTeam: boolean)
   }
 }
 
+/** Freigeben oder ablehnen — direkt unter der Übung, wo der Beitrag steht. */
+async function pruefen(id: number, was: 'freigeben' | 'ablehnen'): Promise<void> {
+  busy.value = true
+  fehler.value = null
+  try {
+    await api.post(`/portal/kommentare/${id}/${was}`)
+    hinweis.value =
+      was === 'freigeben'
+        ? 'Freigegeben — weitere Beiträge dieses Kontos erscheinen jetzt sofort.'
+        : 'Abgelehnt. Der Beitrag bleibt Ihnen sichtbar, öffentlich ist er nicht.'
+    await laden()
+  } catch (cause) {
+    fehler.value = cause instanceof ApiError ? cause.message : 'Das ging nicht durch.'
+  } finally {
+    busy.value = false
+  }
+}
+
 async function loeschen(id: number): Promise<void> {
   if (!confirm('Diesen Beitrag löschen? Antworten darauf verschwinden mit.')) return
 
   try {
-    await api.delete(auth.isAdmin ? `/admin/kommentare/${id}` : `/portal/kommentare/${id}`)
+    await api.delete(`/portal/kommentare/${id}`)
     await laden()
   } catch {
     fehler.value = 'Der Beitrag ließ sich nicht löschen.'
@@ -180,22 +204,20 @@ async function loeschen(id: number): Promise<void> {
       </p>
 
       <!-- ── Neuer Beitrag ──────────────────────────────────────────── -->
-      <form v-if="darfSchreiben || auth.isAdmin" class="formular" @submit.prevent="senden(text, null, !darfSchreiben && auth.isAdmin)">
+      <form v-if="darfSchreiben" class="formular" @submit.prevent="senden(text, null)">
         <textarea
           v-model="text"
           class="feld"
           rows="3"
           :maxlength="KOMMENTAR_MAX_ZEICHEN"
           :placeholder="
-            auth.isAdmin && !darfSchreiben
-              ? 'Als Betreiber schreiben …'
-              : 'Wie ist Ihnen die Übung bekommen?'
+            moderiert ? 'Als Betreiber schreiben …' : 'Wie ist Ihnen die Übung bekommen?'
           "
         />
         <div class="formular-fuss">
           <span class="rest t-meta">{{ KOMMENTAR_MAX_ZEICHEN - text.length }} Zeichen frei</span>
           <GButton type="submit" size="sm" :disabled="busy || !text.trim()">
-            {{ auth.isAdmin && !darfSchreiben ? 'Als Betreiber senden' : 'Beitrag senden' }}
+            {{ moderiert ? 'Als Betreiber senden' : 'Beitrag senden' }}
           </GButton>
         </div>
       </form>
@@ -214,15 +236,35 @@ async function loeschen(id: number): Promise<void> {
             <p class="text">{{ beitrag.text }}</p>
             <div class="beitrag-aktionen">
               <button
-                v-if="darfSchreiben || auth.isAdmin"
+                v-if="darfSchreiben"
                 type="button"
                 class="klein"
                 @click="antwortAuf = antwortAuf === beitrag.id ? null : beitrag.id"
               >
                 {{ antwortAuf === beitrag.id ? 'Abbrechen' : 'Antworten' }}
               </button>
+
+              <!--
+                Geprüft wird dort, wo der Beitrag steht — mit dem Zusammenhang
+                vor Augen statt in einer Liste ohne ihn.
+              -->
+              <template v-if="moderiert && beitrag.status !== 'freigegeben'">
+                <button type="button" class="klein" :disabled="busy" @click="pruefen(beitrag.id, 'freigeben')">
+                  Freigeben
+                </button>
+                <button
+                  v-if="beitrag.status === 'offen'"
+                  type="button"
+                  class="klein still"
+                  :disabled="busy"
+                  @click="pruefen(beitrag.id, 'ablehnen')"
+                >
+                  Ablehnen
+                </button>
+              </template>
+
               <button
-                v-if="auth.isAdmin || (!beitrag.vomTeam && beitrag.status === 'offen')"
+                v-if="moderiert || (!beitrag.vomTeam && beitrag.status === 'offen')"
                 type="button"
                 class="klein still"
                 @click="loeschen(beitrag.id)"
@@ -247,7 +289,16 @@ async function loeschen(id: number): Promise<void> {
                   <span v-if="antwort.status === 'offen'" class="marke t-meta">wird geprüft</span>
                 </header>
                 <p class="text">{{ antwort.text }}</p>
-                <div v-if="auth.isAdmin" class="beitrag-aktionen">
+                <div v-if="moderiert" class="beitrag-aktionen">
+                  <button
+                    v-if="antwort.status !== 'freigegeben'"
+                    type="button"
+                    class="klein"
+                    :disabled="busy"
+                    @click="pruefen(antwort.id, 'freigeben')"
+                  >
+                    Freigeben
+                  </button>
                   <button type="button" class="klein still" @click="loeschen(antwort.id)">
                     Löschen
                   </button>
@@ -259,16 +310,14 @@ async function loeschen(id: number): Promise<void> {
           <form
             v-if="antwortAuf === beitrag.id"
             class="formular antwort-formular"
-            @submit.prevent="senden(antwortText, beitrag.id, !darfSchreiben && auth.isAdmin)"
+            @submit.prevent="senden(antwortText, beitrag.id)"
           >
             <textarea
               v-model="antwortText"
               class="feld"
               rows="2"
               :maxlength="KOMMENTAR_MAX_ZEICHEN"
-              :placeholder="
-                auth.isAdmin && !darfSchreiben ? 'Als Betreiber antworten …' : 'Ihre Antwort …'
-              "
+              :placeholder="moderiert ? 'Als Betreiber antworten …' : 'Ihre Antwort …'"
             />
             <div class="formular-fuss">
               <GButton type="submit" size="sm" :disabled="busy || !antwortText.trim()">
@@ -469,6 +518,12 @@ async function loeschen(id: number): Promise<void> {
 
 .klein:hover {
   text-decoration: underline;
+}
+
+.klein:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
 }
 
 .klein.still {

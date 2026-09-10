@@ -4,7 +4,7 @@ import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
-import { KOMMENTAR_MAX_ZEICHEN, SCHWIERIGKEITEN } from '../../shared/types.js'
+import { SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
 import {
   bucheBestellung,
@@ -37,7 +37,6 @@ import {
   loescheKommentar,
   loescheSterne,
   setzeKommentarStatus,
-  speichereKommentar,
   storniereBestellung,
   upsertAdmin,
 } from '../db.js'
@@ -116,6 +115,13 @@ adminRouter.put('/benutzer', async (req, res) => {
   const rohCredits = Number(body.credits)
   const credits = Number.isFinite(rohCredits) ? Math.max(0, Math.floor(rohCredits)) : 0
 
+  /*
+   * Moderationsrecht im Portal — hat mit dem Backend-Zugang nichts zu tun.
+   * Wer es hat, gibt Beiträge unter der Übung frei und schreibt dort als
+   * Betreiber, ohne sich zusätzlich im Backend anzumelden.
+   */
+  const moderator = body.moderator === true
+
   try {
     const benutzerId = await saveBenutzer(id, {
       email,
@@ -125,6 +131,7 @@ adminRouter.put('/benutzer', async (req, res) => {
       paketIds,
       videoIds,
       credits,
+      moderator,
     })
 
     /*
@@ -863,34 +870,11 @@ adminRouter.delete('/kommentare/:id', async (req, res) => {
   res.json({ ok: true })
 })
 
-/**
- * Als Betreiber schreiben oder antworten.
- *
- * Wird aus dem PORTAL heraus aufgerufen, nicht aus dem Backend: beide Rollen
- * haben eigene Cookies und können gleichzeitig angemeldet sein. Antworten dort
- * zu schreiben, wo man den Zusammenhang sieht, ist der ganze Punkt.
- *
- * Beiträge des Betreibers stehen sofort — die Prüfliste ist für Fremde da.
+/*
+ * Geschrieben wird im Portal, nicht hier: dafür bekommt ein Portalkonto das
+ * Moderationsrecht (Feld `moderator`). Diese Liste bleibt die Übersicht über
+ * alles, was je geschrieben wurde — samt E-Mail, die nach außen nie geht.
  */
-adminRouter.post('/videos/:id/kommentare', async (req, res) => {
-  const videoId = Number(req.params.id)
-  const text = String(req.body?.text ?? '').trim().slice(0, KOMMENTAR_MAX_ZEICHEN)
-
-  if (!text) {
-    res.status(400).json({ error: 'Bitte schreiben Sie etwas.' })
-    return
-  }
-
-  const elternId = req.body?.elternId == null ? null : Number(req.body.elternId)
-  const ergebnis = await speichereKommentar(null, videoId, text, elternId)
-
-  if (ergebnis.status === 'eltern-unbekannt') {
-    res.status(404).json({ error: 'Der Beitrag, auf den geantwortet werden sollte, fehlt.' })
-    return
-  }
-
-  res.status(201).json({ id: ergebnis.id })
-})
 
 /** Die Wertungen einer Übung — samt der Möglichkeit, eine zu entfernen. */
 adminRouter.get('/videos/:id/sterne', async (req, res) => {
