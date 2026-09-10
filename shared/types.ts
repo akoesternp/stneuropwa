@@ -60,6 +60,28 @@ export function paketPreis(anzahlVideos: number): number {
   return Math.max(1, Math.round(anzahlVideos * CREDITS_JE_VIDEO * PAKET_RABATT))
 }
 
+/**
+ * Was ein Paket DIESEN Käufer kostet: gezählt wird nur, was er noch nicht hat.
+ *
+ * Wer sich drei Übungen eines Pakets schon einzeln freigeschaltet hat, soll
+ * sie nicht ein zweites Mal bezahlen. Der Nachlass gilt für jede Art von
+ * Freischaltung — auch für Übungen, die über ein anderes Paket schon offen
+ * sind.
+ *
+ * Bleibt nichts übrig, kostet das Paket trotzdem 1: gekauft wird dann die
+ * Zugehörigkeit, und die deckt ab, was später ins Paket wandert. Ein Paket
+ * ganz ohne aktive Übungen kostet weiterhin nichts und ist gar nicht erst
+ * kaufbar.
+ *
+ * Steht hier neben `paketPreis`, weil Paketübersicht und Kauf-Transaktion
+ * dieselbe Formel brauchen — an zwei Stellen ausgerechnet liefe sie
+ * auseinander, und dazwischen läge echtes Geld.
+ */
+export function paketPreisFuerNutzer(anzahlGesamt: number, anzahlOffen: number): number {
+  if (anzahlGesamt <= 0) return 0
+  return Math.max(1, paketPreis(anzahlOffen))
+}
+
 /* ── Credits kaufen ────────────────────────────────────────────────────── */
 
 /**
@@ -299,8 +321,17 @@ export interface PaketInhalt extends Paket {
   }[]
   /** Summe der Laufzeiten, z. B. "1:24:10" — leer, wenn eine Dauer fehlt. */
   gesamtdauer: string
-  /** Preis in Credits für das ganze Paket — vom Server nach `paketPreis`. */
+  /** Listenpreis des Pakets, unabhängig vom Betrachter — nach `paketPreis`. */
   kosten: number
+  /**
+   * Was es DIESEN Aufrufer kostet: gezählt wird nur, was er noch nicht
+   * freigeschaltet hat, mindestens aber 1. Für Gäste gleich `kosten`.
+   *
+   * Zwei Felder statt eines, weil die Detailseite beides gegenüberstellt —
+   * mit nur dem ermäßigten Preis müsste die Oberfläche den Listenpreis
+   * nachrechnen und damit die Preisregel ein zweites Mal kennen.
+   */
+  kostenFuerSie: number
 }
 
 /**

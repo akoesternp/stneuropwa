@@ -55,7 +55,15 @@ const erledigtAnzahl = computed(
 /* ── Freischalten gegen Credits ──────────────────────────────────────── */
 
 const guthaben = computed(() => auth.user?.credits ?? 0)
-const reichtDasGuthaben = computed(() => guthaben.value >= (paket.value?.kosten ?? 0))
+const reichtDasGuthaben = computed(() => guthaben.value >= (paket.value?.kostenFuerSie ?? 0))
+
+/**
+ * Was die noch gesperrten Übungen einzeln kosten würden.
+ *
+ * Der Vergleich muss sich auf dieselbe Menge beziehen wie der Paketpreis —
+ * gegen den vollen Bestand gerechnet wäre die Ersparnis geschönt.
+ */
+const einzelpreisOffen = computed(() => offeneAnzahl.value * CREDITS_JE_VIDEO)
 
 /** Ein Paket kostet mehr als eine Übung — die Rückfrage erst recht. */
 const frageOffen = ref(false)
@@ -133,8 +141,8 @@ function anteil(videoId: number, dauer: string): number {
           <p class="cta-text">
             {{ offeneAnzahl }} von {{ paket.videos.length }} Übungen dieses Pakets
             {{ offeneAnzahl === 1 ? 'ist' : 'sind' }} für Sie noch gesperrt. Das ganze Paket kostet
-            {{ paket.kosten }} Neuro — einzeln wären es
-            {{ paket.videos.length * CREDITS_JE_VIDEO }}. Ihr Guthaben beträgt {{ guthaben }}.
+            {{ paket.kostenFuerSie }} Neuro — einzeln wären es
+            {{ einzelpreisOffen }}. Ihr Guthaben beträgt {{ guthaben }}.
           </p>
           <div class="cta-knoepfe">
             <GButton
@@ -143,7 +151,7 @@ function anteil(videoId: number, dauer: string): number {
               :disabled="credits.busy"
               @click="frageOffen = true"
             >
-              Paket für {{ paket.kosten }} Neuro freischalten
+              Paket für {{ paket.kostenFuerSie }} Neuro freischalten
             </GButton>
             <GButton v-else variant="white" :to="{ name: 'credits' }">Neuro aufladen</GButton>
           </div>
@@ -152,7 +160,8 @@ function anteil(videoId: number, dauer: string): number {
         <template v-else>
           <p class="cta-text">
             Mit einem Konto lässt sich dieses Paket für {{ paket.kosten }} Neuro freischalten —
-            einzeln wären es {{ paket.videos.length * CREDITS_JE_VIDEO }}.
+            einzeln wären es {{ paket.videos.length * CREDITS_JE_VIDEO }}. Haben Sie einzelne
+            Übungen daraus schon, wird es entsprechend günstiger.
           </p>
           <div class="cta-knoepfe">
             <GButton variant="white" :to="{ name: 'registrieren' }">Konto anlegen</GButton>
@@ -175,7 +184,7 @@ function anteil(videoId: number, dauer: string): number {
       art="Paket"
       :name="paket.name"
       :zusatz="`${paket.videos.length} Übungen${paket.gesamtdauer ? ' · ' + paket.gesamtdauer + ' Laufzeit' : ''}`"
-      :kosten="paket.kosten"
+      :kosten="paket.kostenFuerSie"
       :guthaben="guthaben"
       :busy="credits.busy"
       :fehler="credits.fehler"

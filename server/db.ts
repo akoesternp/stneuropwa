@@ -1,7 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import mariadb from 'mariadb'
 import type { Pool, PoolConnection } from 'mariadb'
-import { CREDITS_JE_VIDEO, paketPreis, SCHWIERIGKEITEN, STANDARD_BEREICHE } from '../shared/types.js'
+import {
+  CREDITS_JE_VIDEO,
+  paketPreis,
+  paketPreisFuerNutzer,
+  SCHWIERIGKEITEN,
+  STANDARD_BEREICHE,
+} from '../shared/types.js'
 import type {
   Bereich,
   BenutzerEintrag,
@@ -1021,8 +1027,10 @@ export async function deleteVideo(id: number): Promise<void> {
 export async function paketInhalte(benutzerId: number | null): Promise<
   (Paket & {
     zielgruppenNamen: string[]
-    /** Preis in Credits — dieselbe Formel, die auch beim Kauf abgebucht wird. */
+    /** Listenpreis, unabhängig vom Betrachter. */
     kosten: number
+    /** Was es diesem Aufrufer kostet — dieselbe Formel, die der Kauf abbucht. */
+    kostenFuerSie: number
     videos: {
       id: number
       titel: string
@@ -1083,6 +1091,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
 
   return pakete.map((paket) => {
     const eigene = zeilen.filter((zeile) => Number(zeile.paket_id) === paket.id)
+    const offen = eigene.filter((zeile) => Number(zeile.freigeschaltet) !== 1).length
 
     return {
     ...paket,
@@ -1090,6 +1099,13 @@ export async function paketInhalte(benutzerId: number | null): Promise<
     // `zeilen` enthält nur aktive Videos — inaktive kosten also nichts und
     // wären auch nicht abspielbar.
     kosten: paketPreis(eigene.length),
+    /*
+     * Für Gäste ist beides dasselbe: ohne Anmeldung heißt `freigeschaltet`
+     * nur „öffentlich", und daraus einen persönlichen Nachlass zu machen
+     * hieße, jedem Besucher einen Preis zu nennen, den es für ihn nicht gibt.
+     */
+    kostenFuerSie:
+      benutzerId === null ? paketPreis(eigene.length) : paketPreisFuerNutzer(eigene.length, offen),
     videos: eigene
       .map((zeile) => ({
         id: Number(zeile.id),
@@ -1493,10 +1509,20 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
                        WHERE bp.paket_id = p.id AND bp.benutzer_id = ?) AS schonFrei,
               (SELECT COUNT(*) FROM video_pakete vp
                  JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
-                WHERE vp.paket_id = p.id) AS anzahl
+                WHERE vp.paket_id = p.id) AS anzahl,
+              /*
+               * Was dieser Nutzer noch NICHT hat — daran hängt der Preis.
+               * Gezählt wird in derselben Transaktion, die oben schon das
+               * Guthaben gesperrt hat: ein gleichzeitiger Einzelkauf desselben
+               * Kontos wartet an genau dieser Sperre, die Zahl kann also
+               * zwischen Zählen und Abbuchen nicht kippen.
+               */
+              (SELECT COUNT(*) FROM video_pakete vp
+                 JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
+                WHERE vp.paket_id = p.id AND NOT ${SICHTBAR_FUER_NUTZER}) AS offen
          FROM pakete p
         WHERE p.id = ? AND p.aktiv = 1`,
-      [benutzerId, paketId],
+      [benutzerId, benutzerId, benutzerId, paketId],
     )
     const paket = pakete[0]
     if (!paket) {
@@ -1508,9 +1534,13 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
       return { status: 'schon-frei' }
     }
 
-    const kosten = paketPreis(Number(paket.anzahl) || 0)
+    /*
+     * `leer` hängt an der Gesamtzahl, nicht an den offenen: ein Paket ohne
+     * Inhalt bleibt unverkäuflich, ein vollständig freigeschaltetes kostet
+     * dagegen 1 und bleibt kaufbar — dort wird die Zugehörigkeit gekauft.
+     */
+    const kosten = paketPreisFuerNutzer(Number(paket.anzahl) || 0, Number(paket.offen) || 0)
     if (kosten <= 0) {
-      // Ein Paket ohne aktive Übungen: es gäbe nichts freizuschalten.
       await conn.rollback()
       return { status: 'leer' }
     }

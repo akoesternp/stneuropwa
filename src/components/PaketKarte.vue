@@ -84,8 +84,13 @@ const vorschauVideos = computed(() =>
           das Schloss — was es kostet, sagt sonst nichts auf dieser Karte.
         -->
         <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
-        <span v-else-if="paket.kosten" class="marke preis">
-          <NeuroWert :betrag="paket.kosten" />
+        <!--
+          Der persönliche Preis, nicht der Listenpreis: wer die Hälfte des
+          Pakets schon hat, soll auf der Karte sehen, dass es ihn weniger
+          kostet als den Nachbarn.
+        -->
+        <span v-else-if="paket.kostenFuerSie" class="marke preis">
+          <NeuroWert :betrag="paket.kostenFuerSie" />
         </span>
         <span v-else-if="auth.isAuthenticated" class="marke zu">Nicht freigeschaltet</span>
       </span>
