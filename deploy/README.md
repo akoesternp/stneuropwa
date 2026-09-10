@@ -53,16 +53,9 @@ sudo -u stneuro npm ci
 sudo -u stneuro npm run build
 ```
 
-> **Welcher Zweig?** Entwickelt wird auf `feat/videoportal`. Wer von dort
-> ausliefern will, holt ihn ausdrücklich:
->
-> ```bash
-> sudo -u stneuro git checkout feat/videoportal
-> ```
->
-> Sauberer ist, den Stand vorher nach `main` zu bringen — dann zieht der
-> Server ohne Sonderbehandlung, und man sieht am Zweignamen, was im Betrieb
-> läuft.
+> **Welcher Zweig?** Der Server zieht `main` — das ist der Stand, der laufen
+> soll, und `git clone` holt ihn ohne Zutun. Entwickelt wird auf
+> `feat/videoportal`; was fertig ist, wandert von dort nach `main`.
 
 `npm run build` prüft die Typen, baut die Oberfläche nach `dist/` und den
 Server nach `server-dist/`.
