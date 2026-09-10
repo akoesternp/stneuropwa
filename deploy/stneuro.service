@@ -50,7 +50,10 @@ MemoryDenyWriteExecute=false
 # anlegen darf er aber (bootstrap). Hochgeladen wird per SFTP/rsync.
 ReadWritePaths=/var/lib/stneuro
 
-# Der Dienst lauscht auf localhost und spricht nur MariaDB.
+# Der Dienst lauscht auf localhost, spricht MariaDB — und geht nach außen:
+# zu PayPal (api-m.paypal.com) und zum Postausgang. Wer hier später mit
+# IPAddressDeny nachschärft, muss beide durchlassen, sonst scheitern
+# Zahlungen und Bestellbestätigungen still.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]

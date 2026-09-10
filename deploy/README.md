@@ -47,11 +47,22 @@ Schreibrecht). Dann:
 
 ```bash
 cd /opt/stneuro
-sudo -u stneuro git clone git@github.com:akoesternp/stneuro.git .
+sudo -u stneuro git clone git@github.com:akoesternp/stneuropwa.git .
 
 sudo -u stneuro npm ci
 sudo -u stneuro npm run build
 ```
+
+> **Welcher Zweig?** Entwickelt wird auf `feat/videoportal`. Wer von dort
+> ausliefern will, holt ihn ausdrücklich:
+>
+> ```bash
+> sudo -u stneuro git checkout feat/videoportal
+> ```
+>
+> Sauberer ist, den Stand vorher nach `main` zu bringen — dann zieht der
+> Server ohne Sonderbehandlung, und man sieht am Zweignamen, was im Betrieb
+> läuft.
 
 `npm run build` prüft die Typen, baut die Oberfläche nach `dist/` und den
 Server nach `server-dist/`.
@@ -103,6 +114,63 @@ DB_PASSWORD=<das Passwort aus Schritt 3>
 Ohne erreichbare Datenbank startet der Dienst nicht — lieber gar nicht als
 ein Portal, an dem sich niemand anmelden kann.
 
+### Sobald Guthaben verkauft wird
+
+Ohne diese Angaben läuft das Portal, aber niemand kann Neuro kaufen: die
+Zahlwege sind dann schlicht aus, und auf der Neuro-Seite steht kein Knopf.
+
+```
+# Überweisung. Ohne IBAN ist der Zahlweg aus — eine Überweisungsmaske ohne
+# Empfänger wäre schlimmer als gar keine.
+VORKASSE_EMPFAENGER=<Kontoinhaber>
+VORKASSE_IBAN=<IBAN>
+VORKASSE_BIC=<BIC>
+VORKASSE_BANK=<Bank>
+
+# PayPal. Ohne CLIENT_ID und SECRET ist der Zahlweg aus.
+# PAYPAL_ENV bleibt ohne Angabe auf "sandbox" — wer die Umgebung vergisst,
+# testet, statt versehentlich echtes Geld einzuziehen.
+PAYPAL_ENV=live
+PAYPAL_CLIENT_ID=<aus dem PayPal-Dashboard, Reiter Live>
+PAYPAL_SECRET=<dito>
+
+# Postausgang für die Bestellbestätigung. NICHT verzichtbar, siehe unten.
+SMTP_HOST=<Mailserver>
+SMTP_PORT=587
+SMTP_USER=<Postfach>
+SMTP_PASSWORT=<Passwort>
+MAIL_ABSENDER=<Absenderadresse>
+MAIL_BETREIBER=stneuro
+
+# Adresse für Rückfragen — steht in der Fußzeile und bei den Bestellungen.
+KONTAKT_EMAIL=<Adresse>
+```
+
+**Der Postausgang ist keine Bequemlichkeit.** Bei digitalen Inhalten
+erlischt das Widerrufsrecht nur, wenn der Käufer eine Bestätigung auf einem
+dauerhaften Datenträger erhalten hat (§ 356 Abs. 6 Nr. 2 Buchst. d BGB
+verweist auf § 312f). Fehlt sie, bleibt das Widerrufsrecht bestehen — trotz
+des Hakens beim Kauf. Ohne `SMTP_HOST` warnt der Dienst bei jeder Buchung
+im Log; die Bestellung selbst geht trotzdem durch.
+
+Die Absenderadresse muss zu einer Domain gehören, für die dieser Server
+senden darf (SPF, DKIM) — sonst landet die Bestätigung im Spam, und man
+merkt es erst, wenn sich jemand beschwert.
+
+### Feineinstellung
+
+```
+# Startguthaben für ein neu registriertes Konto. Ohne Angabe 0.
+# Zeitlich begrenzte Zugaben gehören NICHT hierher, sondern ins Backend
+# unter „Aktionen" — samt Zeitraum und Obergrenze.
+START_CREDITS=0
+
+# Nach wie vielen Tagen ohne Zahlungseingang eine Bestellung als
+# abgelaufen gilt. Sie verschwindet nicht, sie rutscht nur aus der
+# Arbeitsliste — buchen lässt sie sich weiterhin. Ohne Angabe 14.
+BESTELLUNG_VERFALL_TAGE=14
+```
+
 `HOST=127.0.0.1` ist wichtig: sonst ist die Anwendung unter Umgehung von
 Apache direkt auf Port 3001 erreichbar — also ohne HTTPS.
 
@@ -121,6 +189,7 @@ Im Log muss stehen:
 
 ```
 Datenbank: stneuro auf 127.0.0.1:3306
+Videoverzeichnis: /var/lib/stneuro/videos
   Admin angelegt: admin / …
   Beispieldaten angelegt: 2 Pakete, 6 Video-Kacheln
 stneuro-Server läuft auf http://127.0.0.1:3001
@@ -129,14 +198,23 @@ stneuro-Server läuft auf http://127.0.0.1:3001
 Bricht der Start mit „MariaDB nicht erreichbar" ab, stimmen die
 `DB_*`-Variablen nicht oder MariaDB läuft nicht.
 
+Meldet der Start „Port 3001 lässt sich nicht belegen", läuft der Dienst
+schon oder etwas anderes hört dort zu — `ss -ltnp | grep 3001` zeigt, wer.
+
 ## 6. Apache-vHost
 
 ```bash
 cp /opt/stneuro/deploy/apache.conf /etc/apache2/sites-available/stneuro.np-dev.de.conf
 a2ensite stneuro.np-dev.de
-a2enmod proxy proxy_http deflate
+a2enmod ssl rewrite headers proxy proxy_http deflate
 apachectl configtest && systemctl reload apache2
 ```
+
+Die Modulliste ist vollständig zu nehmen: der vHost benutzt `RewriteEngine`
+(Weiterleitung von 80 auf 443), `RequestHeader`/`Header` (X-Forwarded-Proto
+und die Zwischenspeicher-Regel für den Service Worker) und `SSLEngine`.
+Fehlt eines davon, scheitert schon `apachectl configtest` mit „Invalid
+command" — und Apache startet nach einem Reload gar nicht mehr.
 
 Die Subdomain muss im DNS auf den Server zeigen; Zertifikat wie bei den
 übrigen vHosts (certbot bzw. bestehende Vorlage) ergänzen.
@@ -150,6 +228,17 @@ curl -s  https://stneuro.np-dev.de/api/admin/health     # {"error":"Nicht angeme
 curl -sI http://127.0.0.1:3001/ | head -1               # 200, nur lokal
 ```
 
+Und die Wege, über die Geld hereinkommt:
+
+```bash
+# Zeigt, welche Zahlwege scharf sind — beide müssen auf true stehen,
+# und PayPal auf "live", nicht "sandbox".
+curl -s https://stneuro.np-dev.de/api/portal/zahlung/konfig
+
+# Die Kontaktadresse aus KONTAKT_EMAIL.
+curl -s https://stneuro.np-dev.de/api/portal/kontakt
+```
+
 Von außen darf Port 3001 **nicht** erreichbar sein:
 
 ```bash
@@ -160,6 +249,32 @@ Dann im Browser unter `/admin` anmelden und **sofort das Admin-Passwort
 ändern** (Verwaltung → Zugänge). Anschließend `ADMIN_PASSWORD` aus
 `/etc/stneuro.env` entfernen und `systemctl restart stneuro` — sonst wird das
 Passwort bei jedem Neustart wieder überschrieben.
+
+---
+
+## Bevor echtes Geld fließt
+
+Drei Dinge, die nicht am Server hängen, aber vor dem ersten echten Kauf
+erledigt sein müssen.
+
+**1. Die Pflichttexte.** Impressum, Datenschutz und Widerrufsbelehrung sind
+im Portal als Platzhalter angelegt (`/impressum`, `/datenschutz`,
+`/widerruf`) — sie sagen offen, dass der Text noch fehlt, und listen auf,
+was hineingehört. Solange die Widerrufsbelehrung nicht steht, beginnt die
+Widerrufsfrist nicht zu laufen (§ 356 Abs. 3 BGB). Die Texte gehören zu
+jemandem mit Zulassung, nicht in dieses Projekt.
+
+**2. PayPal von Sandbox auf Live.** Die Zugangsdaten sind andere als die
+der Sandbox; `PAYPAL_ENV=live` allein reicht nicht. Nach der Umstellung
+einen echten Kauf über den kleinsten Betrag machen und ihn anschließend im
+Backend erstatten — dann ist beides einmal gelaufen.
+
+**3. Ein Geschäftskonto bei PayPal.** Zahlungen entgegennehmen kann nur
+ein solches; ein Privatkonto lässt sich kostenlos umstellen.
+
+Ebenfalls prüfen: Auf der Neuro-Seite steht „Alle Preise verstehen sich
+inklusive Umsatzsteuer". Wer Kleinunternehmer nach § 19 UStG ist, muss
+diesen Satz ändern.
 
 ---
 
