@@ -128,9 +128,61 @@ async function einziehen(row: BestellungEintrag) {
   }
 }
 
+/**
+ * Einen Kauf zurücknehmen.
+ *
+ * Möglich nur, solange von den gekauften Neuro nichts ausgegeben wurde —
+ * das entscheidet der Server, nicht dieser Knopf. Bei PayPal geht das Geld
+ * dabei automatisch zurück; bei einer Überweisung muss ein Mensch überweisen,
+ * und genau das sagt die Rückmeldung dann auch.
+ */
+async function erstatten(row: BestellungEintrag) {
+  const frage =
+    `${row.referenz} über ${euro.format(row.betragCent / 100)} erstatten?\n\n` +
+    `${row.credits} Neuro werden bei ${row.email} wieder abgebucht.` +
+    (row.zahlweg === 'paypal'
+      ? '\nDas Geld geht über PayPal automatisch zurück.'
+      : '\nDas Geld müssen Sie selbst zurücküberweisen.')
+  if (!window.confirm(frage)) return
+
+  busy.value = true
+  notice.value = null
+  error.value = null
+  try {
+    const antwort = await api.post<{ zahlweg: string; betragCent: number }>(
+      `/admin/bestellungen/${row.id}/erstatten`,
+      {},
+    )
+    notice.value =
+      antwort.zahlweg === 'paypal'
+        ? `${row.referenz}: ${row.credits} Neuro abgebucht, ${euro.format(antwort.betragCent / 100)} über PayPal zurückgezahlt.`
+        : `${row.referenz}: ${row.credits} Neuro abgebucht. Bitte ${euro.format(antwort.betragCent / 100)} zurücküberweisen.`
+    await load()
+  } catch (cause) {
+    error.value = cause instanceof ApiError ? cause.message : 'Erstatten fehlgeschlagen.'
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * Steht bei dieser Bestellung noch etwas aus?
+ *
+ * Eine Aufzählung an drei Stellen im Template ging schon einmal schief:
+ * die erstattete Bestellung bot weiter „Bei PayPal einziehen" an. Als
+ * Funktion steht die Regel einmal da.
+ *
+ * Abgelaufene zählen mit: trifft das Geld doch noch ein, soll es sich
+ * buchen lassen — der Stand sagt nur, dass lange nichts passiert ist.
+ */
+function offenerStand(row: BestellungEintrag): boolean {
+  return row.status === 'offen' || row.status === 'entwurf' || row.status === 'abgelaufen'
+}
+
 function statusText(row: BestellungEintrag): string {
   if (row.status === 'bezahlt') return 'gebucht'
   if (row.status === 'storniert') return 'storniert'
+  if (row.status === 'erstattet') return 'erstattet'
   if (row.status === 'abgelaufen') return 'abgelaufen'
   if (row.status === 'entwurf') {
     return row.zahlweg === 'vorkasse' ? 'nur angesehen' : 'nicht abgeschlossen'
@@ -199,7 +251,7 @@ function erklaerung(row: BestellungEintrag): string {
             geschlossener Reiter.
           -->
           <GButton
-            v-if="row.zahlweg === 'paypal' && row.status !== 'bezahlt' && row.status !== 'storniert'"
+            v-if="row.zahlweg === 'paypal' && offenerStand(row)"
             size="sm"
             :disabled="busy"
             @click="einziehen(row)"
@@ -208,7 +260,7 @@ function erklaerung(row: BestellungEintrag): string {
           </GButton>
 
           <GButton
-            v-if="row.zahlweg === 'vorkasse' && (row.status === 'offen' || row.status === 'entwurf')"
+            v-if="row.zahlweg === 'vorkasse' && offenerStand(row)"
             size="sm"
             :disabled="busy"
             @click="bestaetigen(row)"
@@ -217,7 +269,7 @@ function erklaerung(row: BestellungEintrag): string {
           </GButton>
 
           <GButton
-            v-if="row.status === 'offen' || row.status === 'entwurf' || row.status === 'abgelaufen'"
+            v-if="offenerStand(row)"
             variant="outline"
             size="sm"
             danger
@@ -227,7 +279,26 @@ function erklaerung(row: BestellungEintrag): string {
             Stornieren
           </GButton>
 
-          <span v-if="row.status === 'bezahlt' && row.anbieterReferenz" class="anbieter t-meta">
+          <!--
+            Nur wenn der Kauf noch unangerührt ist. Ob das so ist, rechnet
+            der Server aus dem Guthabenbuch aus — es hängt an jeder
+            Freischaltung und lässt sich hier nicht ablesen.
+          -->
+          <GButton
+            v-if="row.erstattbar"
+            variant="outline"
+            size="sm"
+            :disabled="busy"
+            @click="erstatten(row)"
+          >
+            Erstatten
+          </GButton>
+
+          <span v-if="row.status === 'bezahlt' && !row.erstattbar" class="anbieter t-meta">
+            verbraucht
+          </span>
+
+          <span v-if="row.status === 'erstattet' && row.anbieterReferenz" class="anbieter t-meta">
             {{ row.anbieterReferenz }}
           </span>
         </div>
@@ -332,7 +403,8 @@ function erklaerung(row: BestellungEintrag): string {
 }
 
 .status.entwurf,
-.status.abgelaufen {
+.status.abgelaufen,
+.status.erstattet {
   color: var(--c-text-muted);
 }
 

@@ -6,10 +6,12 @@ import { pipeline } from 'node:stream/promises'
 import { Router } from 'express'
 import { KOMMENTAR_MAX_ZEICHEN, SCHWIERIGKEITEN } from '../../shared/types.js'
 import { DEFAULT_ADMIN_PASSWORD } from '../bootstrap.js'
-import { ziehePaypalEin } from '../einzug.js'
+import { erstattePaypalKauf, ziehePaypalEin } from '../einzug.js'
 import {
   bucheBestellung,
+  erstatteBestellung,
   findeBestellung,
+  istErstattbar,
   deleteAdmin,
   deleteAktion,
   deleteBereich,
@@ -883,6 +885,68 @@ adminRouter.post('/bestellungen/:id/einziehen', async (req, res) => {
     default:
       res.status(502).json({ error: 'PayPal antwortet gerade nicht.' })
   }
+})
+
+/**
+ * Einen Kauf zurücknehmen — nur, solange nichts davon benutzt wurde.
+ *
+ * Rechtlich ist das Kulanz, kein Widerruf: den hat der Käufer beim Kauf
+ * ausdrücklich abbedungen, damit die Neuro sofort nutzbar sind. Deshalb
+ * entscheidet der Betreiber, nicht ein Knopf im Portal.
+ *
+ * Reihenfolge mit Bedacht: erst prüfen, dann bei PayPal zurückzahlen, dann
+ * abbuchen. Andersherum stünde die Bestellung auf „erstattet", während das
+ * Geld noch beim Anbieter liegt. Bei Vorkasse überweist ein Mensch zurück —
+ * das kann nur er.
+ */
+adminRouter.post('/bestellungen/:id/erstatten', async (req, res) => {
+  const pruefung = await istErstattbar(Number(req.params.id))
+  if (!pruefung.bestellung) {
+    res.status(404).json({ error: pruefung.grund })
+    return
+  }
+  if (!pruefung.moeglich) {
+    res.status(409).json({ error: pruefung.grund })
+    return
+  }
+  const bestellung = pruefung.bestellung
+
+  if (bestellung.zahlweg === 'paypal') {
+    const zurueck = await erstattePaypalKauf(bestellung)
+    if (!zurueck.ok) {
+      res.status(502).json({ error: zurueck.grund })
+      return
+    }
+  }
+
+  const ergebnis = await erstatteBestellung(bestellung.id)
+  if (ergebnis.status !== 'erstattet') {
+    /*
+     * Bei PayPal ist das Geld an dieser Stelle schon zurück. Dass die
+     * Abbuchung trotzdem scheitert, kann nur heißen: zwischen Prüfung und
+     * Buchung wurde etwas freigeschaltet. Das gehört ins Log und dem
+     * Betreiber deutlich gesagt.
+     */
+    console.error(
+      `[Zahlung] Erstattung ${bestellung.referenz}: Rückzahlung lief, Abbuchung nicht — ` +
+        ergebnis.grund,
+    )
+    res.status(409).json({
+      error:
+        bestellung.zahlweg === 'paypal'
+          ? `${ergebnis.grund} Das Geld ist bei PayPal bereits zurückgezahlt — bitte das Guthaben von Hand richtigstellen.`
+          : ergebnis.grund,
+    })
+    return
+  }
+
+  res.json({
+    ok: true,
+    credits: ergebnis.credits,
+    zahlweg: bestellung.zahlweg,
+    betragCent: bestellung.betragCent,
+    referenz: bestellung.referenz,
+  })
 })
 
 adminRouter.post('/bestellungen/:id/stornieren', async (req, res) => {

@@ -179,6 +179,55 @@ export async function erfassePaypalZahlung(vorgangId: string): Promise<Erfassung
   return werteVorgangAus(JSON.parse(rohtext))
 }
 
+export type RueckzahlungsErgebnis =
+  | { status: 'erstattet'; erstattungId: string }
+  | { status: 'fehlgeschlagen'; grund: string }
+
+/**
+ * Zahlt eine erfasste Zahlung zurück.
+ *
+ * Der Betrag wird ausdrücklich mitgegeben, obwohl PayPal ohne Angabe den
+ * ganzen erstattet: so steht in der Anfrage, was gemeint ist, und eine
+ * spätere Teilerstattung wäre kein Umbau, sondern ein anderer Wert.
+ *
+ * Gebraucht wird die ERFASSUNGSnummer, nicht die des Vorgangs — die eine
+ * steht für das Geld, die andere für den Einkauf.
+ */
+export async function erstattePaypalZahlung(
+  erfassungId: string,
+  betragCent: number,
+  referenz: string,
+): Promise<RueckzahlungsErgebnis> {
+  const antwort = await fetch(
+    `${BASIS}/v2/payments/captures/${encodeURIComponent(erfassungId)}/refund`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${await zugangstoken()}`,
+        'content-type': 'application/json',
+        // Ein wiederholter Aufruf erstattet nicht zweimal.
+        'paypal-request-id': `erstatten-${erfassungId}`,
+      },
+      body: JSON.stringify({
+        amount: { currency_code: 'EUR', value: alsBetrag(betragCent) },
+        invoice_id: referenz,
+        note_to_payer: 'Rückerstattung Ihrer Neuro',
+      }),
+    },
+  )
+
+  const rohtext = await antwort.text()
+  if (!antwort.ok) {
+    return { status: 'fehlgeschlagen', grund: `${antwort.status}: ${rohtext.slice(0, 300)}` }
+  }
+
+  const daten = JSON.parse(rohtext) as { id?: string; status?: string }
+  if (daten.status !== 'COMPLETED' && daten.status !== 'PENDING') {
+    return { status: 'fehlgeschlagen', grund: `Unerwarteter Stand: ${daten.status}` }
+  }
+  return { status: 'erstattet', erstattungId: String(daten.id ?? '') }
+}
+
 /** Fragt den Stand eines Vorgangs ab, ohne etwas zu verändern. */
 export async function leseVorgang(vorgangId: string): Promise<ErfassungsErgebnis> {
   const antwort = await fetch(`${BASIS}/v2/checkout/orders/${encodeURIComponent(vorgangId)}`, {

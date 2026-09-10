@@ -5,6 +5,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GCard from '@/components/ui/GCard.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useBestellungenStore } from '@/stores/bestellungen'
+import { useKontaktStore } from '@/stores/kontakt'
 import { ladePaypal } from '@/utils/paypal'
 import type { PaypalButtons } from '@/utils/paypal'
 import {
@@ -28,6 +29,7 @@ import type { Bestellung, CreditPaket } from '@shared/types'
  */
 const auth = useAuthStore()
 const bestellungen = useBestellungenStore()
+const kontakt = useKontaktStore()
 
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' })
 const preis = (cent: number) => euro.format(cent / 100)
@@ -438,6 +440,19 @@ function reichtFuerPaket(credits: number): number {
         {{ offeneBestellungen.length }}
         {{ offeneBestellungen.length === 1 ? 'Bestellung wartet' : 'Bestellungen warten' }} noch
         auf den Zahlungseingang.
+      </p>
+
+      <!--
+        Zurücknehmen lässt sich ein Kauf nur, solange davon nichts
+        ausgegeben wurde — sobald eine Übung freigeschaltet ist, ist er
+        verbraucht. Bewusst „Rückerstattung" und nicht „Widerruf": den hat
+        der Käufer beim Kauf ausdrücklich abbedungen, damit die Neuro
+        sofort nutzbar sind.
+      -->
+      <p v-if="kontakt.email" class="einleitung">
+        Stimmt etwas nicht, oder wollen Sie einen Kauf zurückgeben? Solange von einem Kauf
+        noch kein Neuro ausgegeben wurde, erstatten wir ihn —
+        schreiben Sie an <a :href="`mailto:${kontakt.email}`">{{ kontakt.email }}</a>.
       </p>
 
       <ul class="bestellliste">

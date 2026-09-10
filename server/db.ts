@@ -16,6 +16,8 @@ import type {
   BestellStatus,
   BestellungEintrag,
   Fortschritt,
+  GuthabenBuchung,
+  GuthabenGrund,
   KatalogVideo,
   Kommentar,
   KommentarBereich,
@@ -384,6 +386,51 @@ async function createSchema(): Promise<void> {
     )
 
     /*
+     * Das Guthabenbuch: jede Veränderung am Stand hinterlässt eine Zeile.
+     *
+     * Ohne das ist `benutzer.credits` eine Zahl ohne Herkunft — man kann
+     * weder sagen, woher ein Stand kommt, noch ob die Credits aus einem
+     * bestimmten Kauf schon angerührt wurden. Genau das braucht die
+     * Erstattung, und der Betreiber braucht es für jede Rückfrage.
+     *
+     * `stand_danach` ist Absicht: damit lässt sich rückblickend fragen, ob
+     * der Stand seit einem Kauf je unter dessen Menge gefallen ist — die
+     * einzige Frage, die zählt, wenn Credits untereinander gleich sind.
+     */
+    await conn.query(
+      `CREATE TABLE IF NOT EXISTS guthaben_buchungen (
+        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        benutzer_id INT UNSIGNED NOT NULL,
+        menge INT NOT NULL,
+        grund VARCHAR(24) NOT NULL,
+        bezug_id INT UNSIGNED NULL DEFAULT NULL,
+        notiz VARCHAR(160) NOT NULL DEFAULT '',
+        stand_danach INT NOT NULL DEFAULT 0,
+        angelegt_am BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (id),
+        KEY ix_benutzer (benutzer_id, id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    )
+
+    /*
+     * Für Konten, die es vor dem Buch schon gab, einmal der Anfangsbestand.
+     * Damit ist alles ab jetzt lückenlos; ältere Käufe bleiben mangels
+     * Buchführung nicht erstattbar, und das ist ehrlicher als zu raten.
+     */
+    const buchZeilen: { anzahl: number }[] = await conn.query(
+      `SELECT COUNT(*) AS anzahl FROM guthaben_buchungen`,
+    )
+    if (Number(buchZeilen[0]?.anzahl ?? 0) === 0) {
+      await conn.query(
+        `INSERT INTO guthaben_buchungen
+           (benutzer_id, menge, grund, notiz, stand_danach, angelegt_am)
+         SELECT id, credits, 'anfang', 'Bestand vor Einführung des Guthabenbuchs', credits, ?
+           FROM benutzer WHERE credits > 0`,
+        [Date.now()],
+      )
+    }
+
+    /*
      * Nachgetragen für Installationen, die es schon vor dem Entwurfsstand
      * gab. Alte Bestellungen bleiben ohne Zeitpunkt — bestätigt hat sie
      * damals niemand, es gab den Schritt ja noch nicht.
@@ -391,6 +438,9 @@ async function createSchema(): Promise<void> {
     const bestellSpalten: { Field: string }[] = await conn.query(`SHOW COLUMNS FROM bestellungen`)
     if (!bestellSpalten.some((spalte) => spalte.Field === 'bestaetigt_am')) {
       await conn.query(`ALTER TABLE bestellungen ADD COLUMN bestaetigt_am BIGINT NULL DEFAULT NULL`)
+    }
+    if (!bestellSpalten.some((spalte) => spalte.Field === 'erstattet_am')) {
+      await conn.query(`ALTER TABLE bestellungen ADD COLUMN erstattet_am BIGINT NULL DEFAULT NULL`)
     }
 
     /*
@@ -651,6 +701,17 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
   try {
     await conn.beginTransaction()
 
+    /*
+     * Das Guthaben wird hier auf einen Wert GESETZT, nicht verändert. Fürs
+     * Buch zählt aber die Differenz — sonst stünde dort eine Menge, die nie
+     * geflossen ist. Der alte Stand muss deshalb vor dem Schreiben feststehen.
+     */
+    const vorher: Record<string, unknown>[] =
+      id === null
+        ? []
+        : await conn.query('SELECT credits FROM benutzer WHERE id = ?', [id])
+    const alterStand = Number(vorher[0]?.credits) || 0
+
     let benutzerId: number
     if (id === null) {
       const result = await conn.query(
@@ -674,6 +735,23 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
         daten.passwortHash
           ? [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, daten.passwortHash, id]
           : [daten.email, daten.name, daten.aktiv ? 1 : 0, daten.credits, id],
+      )
+    }
+
+    const abweichung = daten.credits - alterStand
+    if (abweichung !== 0) {
+      await conn.query(
+        `INSERT INTO guthaben_buchungen
+           (benutzer_id, menge, grund, notiz, stand_danach, angelegt_am)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          benutzerId,
+          abweichung,
+          id === null ? 'anfang' : 'hand',
+          id === null ? 'Konto in der Verwaltung angelegt' : 'In der Verwaltung geändert',
+          daten.credits,
+          Date.now(),
+        ],
       )
     }
 
@@ -779,6 +857,23 @@ export async function registriereBenutzer(daten: {
        VALUES (?, ?, ?, 1, ?, ?, ?, ?)`,
       [daten.email, daten.passwortHash, daten.name, credits, credits, aktionId, jetzt],
     )
+
+    if (credits > 0) {
+      await conn.query(
+        `INSERT INTO guthaben_buchungen
+           (benutzer_id, menge, grund, bezug_id, notiz, stand_danach, angelegt_am)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          Number(ergebnis.insertId),
+          credits,
+          'start',
+          aktionId,
+          aktionName ? `Aktion „${aktionName}“` : 'Startguthaben',
+          credits,
+          jetzt,
+        ],
+      )
+    }
 
     await conn.commit()
     return { id: Number(ergebnis.insertId), credits, aktion: aktionName }
@@ -1431,9 +1526,9 @@ export async function gutschreibeCredits(
       return null
     }
 
-    await conn.query('UPDATE benutzer SET credits = credits + ? WHERE id = ?', [menge, benutzerId])
+    const danach = await schreibeGuthaben(conn, benutzerId, menge, 'hand')
     await conn.commit()
-    return (Number(konten[0].credits) || 0) + menge
+    return danach
   } catch (cause) {
     await conn.rollback()
     throw cause
@@ -1443,6 +1538,51 @@ export async function gutschreibeCredits(
 }
 
 /* ── Bestellungen ──────────────────────────────────────────────────────── */
+
+/**
+ * Wofür sich ein Guthabenstand geändert hat.
+ *
+ * `anfang` gibt es nur einmal je Konto — der Bestand, den es vor dem Buch
+ * schon gab. `hand` ist eine Änderung aus der Verwaltung.
+ */
+
+
+/** Was gebraucht wird, um zu fragen — eine Verbindung oder der Vorrat. */
+interface Abfrager {
+  query(sql: string, werte?: unknown[]): Promise<never>
+}
+
+/**
+ * Ändert das Guthaben UND schreibt die Zeile dazu — nie das eine ohne das
+ * andere. Deshalb gibt es diese Funktion: ein `UPDATE benutzer SET credits`
+ * an anderer Stelle wäre eine Lücke im Buch, und die fiele erst auf, wenn
+ * jemand fragt, wo sein Guthaben geblieben ist.
+ *
+ * Läuft in der Transaktion des Aufrufers, wenn er eine hat: Abbuchung und
+ * Eintrag müssen zusammen gelten oder zusammen ausfallen.
+ */
+async function schreibeGuthaben(
+  conn: Abfrager,
+  benutzerId: number,
+  menge: number,
+  grund: GuthabenGrund,
+  bezugId: number | null = null,
+  notiz = '',
+): Promise<number> {
+  await conn.query('UPDATE benutzer SET credits = credits + ? WHERE id = ?', [menge, benutzerId])
+  const stand: Record<string, unknown>[] = await conn.query(
+    'SELECT credits FROM benutzer WHERE id = ?',
+    [benutzerId],
+  )
+  const danach = Number(stand[0]?.credits) || 0
+  await conn.query(
+    `INSERT INTO guthaben_buchungen
+       (benutzer_id, menge, grund, bezug_id, notiz, stand_danach, angelegt_am)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [benutzerId, menge, grund, bezugId, notiz.slice(0, 160), danach, Date.now()],
+  )
+  return danach
+}
 
 function toBestellung(row: Record<string, unknown>): Bestellung {
   return {
@@ -1456,6 +1596,7 @@ function toBestellung(row: Record<string, unknown>): Bestellung {
     angelegtAm: Number(row.angelegt_am) || 0,
     bestaetigtAm: row.bestaetigt_am == null ? null : Number(row.bestaetigt_am),
     bezahltAm: row.bezahlt_am === null ? null : Number(row.bezahlt_am),
+    erstattetAm: row.erstattet_am == null ? null : Number(row.erstattet_am),
   }
 }
 
@@ -1653,7 +1794,18 @@ export async function listBestellungen(): Promise<BestellungEintrag[]> {
   await ensureReady()
   await verfalleAlteBestellungen()
   const rows: Record<string, unknown>[] = await getPool().query(
-    `SELECT b.*, u.email, u.name
+    /*
+     * Der Tiefstand seit der Gutschrift beantwortet die Erstattungsfrage:
+     * ist er nie unter die gekaufte Menge gefallen, liegt sie noch
+     * vollständig da. In EINER Abfrage, nicht je Zeile — sonst wären es
+     * dreihundert.
+     */
+    `SELECT b.*, u.email, u.name,
+       (SELECT MIN(g2.stand_danach) FROM guthaben_buchungen g2
+         WHERE g2.benutzer_id = b.benutzer_id
+           AND g2.id >= (SELECT MIN(g1.id) FROM guthaben_buchungen g1
+                          WHERE g1.bezug_id = b.id AND g1.grund = 'kauf')
+       ) AS tiefstand
        FROM bestellungen b
        LEFT JOIN benutzer u ON u.id = b.benutzer_id
       ORDER BY b.status = 'offen' DESC, b.status = 'entwurf' DESC, b.angelegt_am DESC
@@ -1665,6 +1817,10 @@ export async function listBestellungen(): Promise<BestellungEintrag[]> {
     email: String(row.email ?? '—'),
     name: String(row.name ?? ''),
     anbieterReferenz: String(row.anbieter_referenz ?? ''),
+    erstattbar:
+      String(row.status) === 'bezahlt' &&
+      row.tiefstand !== null &&
+      Number(row.tiefstand) >= (Number(row.credits) || 0),
   }))
 }
 
@@ -1722,20 +1878,20 @@ export async function bucheBestellung(bestellungId: number): Promise<BuchungsErg
         : { status: 'schon-gebucht', bestellung }
     }
 
-    await conn.query('UPDATE benutzer SET credits = credits + ? WHERE id = ?', [
-      bestellung.credits,
+    const stand = await schreibeGuthaben(
+      conn,
       Number(vorher[0].benutzer_id),
-    ])
-    const konten: Record<string, unknown>[] = await conn.query(
-      'SELECT credits FROM benutzer WHERE id = ?',
-      [Number(vorher[0].benutzer_id)],
+      bestellung.credits,
+      'kauf',
+      bestellung.id,
+      bestellung.referenz,
     )
 
     await conn.commit()
     return {
       status: 'gebucht',
       bestellung: { ...bestellung, status: 'bezahlt', bezahltAm: Date.now() },
-      credits: Number(konten[0]?.credits) || 0,
+      credits: stand,
     }
   } catch (cause) {
     await conn.rollback()
@@ -1743,6 +1899,188 @@ export async function bucheBestellung(bestellungId: number): Promise<BuchungsErg
   } finally {
     conn.release()
   }
+}
+
+/**
+ * Lässt sich dieser Kauf noch zurücknehmen? Nur lesend.
+ *
+ * Gebraucht, bevor irgendwo Geld bewegt wird: erst fragen, dann zahlen,
+ * dann buchen. Die Buchung prüft anschließend noch einmal — dazwischen
+ * kann eine Freischaltung liegen.
+ */
+export async function istErstattbar(
+  bestellungId: number,
+): Promise<{ moeglich: boolean; grund: string; bestellung: Bestellung | null }> {
+  await ensureReady()
+
+  const zeilen: Record<string, unknown>[] = await getPool().query(
+    'SELECT * FROM bestellungen WHERE id = ?',
+    [bestellungId],
+  )
+  if (!zeilen[0]) {
+    return { moeglich: false, grund: 'Bestellung nicht gefunden.', bestellung: null }
+  }
+  const bestellung = toBestellung(zeilen[0])
+  if (bestellung.status !== 'bezahlt') {
+    return {
+      moeglich: false,
+      grund: 'Nur eine gebuchte Bestellung lässt sich erstatten.',
+      bestellung,
+    }
+  }
+
+  const tief: Record<string, unknown>[] = await getPool().query(
+    `SELECT MIN(g2.stand_danach) AS tiefstand FROM guthaben_buchungen g2
+      WHERE g2.benutzer_id = ?
+        AND g2.id >= (SELECT MIN(g1.id) FROM guthaben_buchungen g1
+                       WHERE g1.bezug_id = ? AND g1.grund = 'kauf')`,
+    [Number(zeilen[0].benutzer_id), bestellungId],
+  )
+  if (tief[0]?.tiefstand == null) {
+    return {
+      moeglich: false,
+      grund: 'Zu diesem Kauf gibt es keine Buchung im Guthabenbuch — er ist älter als das Buch.',
+      bestellung,
+    }
+  }
+  if (Number(tief[0].tiefstand) < bestellung.credits) {
+    return {
+      moeglich: false,
+      grund: `Von diesen ${bestellung.credits} Neuro wurde bereits etwas ausgegeben.`,
+      bestellung,
+    }
+  }
+
+  return { moeglich: true, grund: '', bestellung }
+}
+
+export type ErstattungsErgebnis =
+  | { status: 'erstattet'; bestellung: Bestellung; credits: number }
+  | { status: 'nicht-erstattbar'; grund: string }
+
+/**
+ * Nimmt einen Kauf zurück — aber nur, solange nichts davon benutzt wurde.
+ *
+ * Credits sind untereinander gleich; welches einzelne ausgegeben wurde,
+ * lässt sich nicht sagen. Beantwortbar ist nur: ist der Stand seit der
+ * Gutschrift je unter die gekaufte Menge gefallen? Wenn nein, liegt sie
+ * noch vollständig da — und genau dann darf zurückgezahlt werden.
+ *
+ * Geprüft wird INNERHALB der Transaktion und mit gesperrter Kontozeile:
+ * sonst könnte zwischen Prüfung und Abbuchung noch eine Freischaltung
+ * dazwischenkommen, und am Ende stünde ein Minus.
+ *
+ * Das Geld selbst bewegt diese Funktion nicht — bei PayPal tut das der
+ * Aufrufer, bei Vorkasse ein Mensch mit einer Überweisung.
+ */
+export async function erstatteBestellung(bestellungId: number): Promise<ErstattungsErgebnis> {
+  await ensureReady()
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+
+    const zeilen: Record<string, unknown>[] = await conn.query(
+      'SELECT * FROM bestellungen WHERE id = ? FOR UPDATE',
+      [bestellungId],
+    )
+    if (!zeilen[0]) {
+      await conn.rollback()
+      return { status: 'nicht-erstattbar', grund: 'Bestellung nicht gefunden.' }
+    }
+    const bestellung = toBestellung(zeilen[0])
+    const benutzerId = Number(zeilen[0].benutzer_id)
+
+    if (bestellung.status !== 'bezahlt') {
+      await conn.rollback()
+      return {
+        status: 'nicht-erstattbar',
+        grund: 'Nur eine gebuchte Bestellung lässt sich erstatten.',
+      }
+    }
+
+    await conn.query('SELECT credits FROM benutzer WHERE id = ? FOR UPDATE', [benutzerId])
+
+    const gutschrift: Record<string, unknown>[] = await conn.query(
+      `SELECT MIN(id) AS id FROM guthaben_buchungen WHERE bezug_id = ? AND grund = 'kauf'`,
+      [bestellungId],
+    )
+    if (gutschrift[0]?.id == null) {
+      await conn.rollback()
+      return {
+        status: 'nicht-erstattbar',
+        grund:
+          'Zu diesem Kauf gibt es keine Buchung im Guthabenbuch — er ist älter als das Buch.',
+      }
+    }
+
+    const tief: Record<string, unknown>[] = await conn.query(
+      `SELECT MIN(stand_danach) AS tiefstand FROM guthaben_buchungen
+        WHERE benutzer_id = ? AND id >= ?`,
+      [benutzerId, Number(gutschrift[0].id)],
+    )
+    const tiefstand = Number(tief[0]?.tiefstand ?? -1)
+    if (tiefstand < bestellung.credits) {
+      await conn.rollback()
+      return {
+        status: 'nicht-erstattbar',
+        grund: `Von diesen ${bestellung.credits} Neuro wurde bereits etwas ausgegeben.`,
+      }
+    }
+
+    const jetzt = Date.now()
+    const gedreht = await conn.query(
+      `UPDATE bestellungen SET status = 'erstattet', erstattet_am = ?
+        WHERE id = ? AND status = 'bezahlt'`,
+      [jetzt, bestellungId],
+    )
+    if (Number(gedreht.affectedRows) !== 1) {
+      await conn.rollback()
+      return { status: 'nicht-erstattbar', grund: 'Die Bestellung hat sich zwischenzeitlich geändert.' }
+    }
+
+    const stand = await schreibeGuthaben(
+      conn,
+      benutzerId,
+      -bestellung.credits,
+      'erstattung',
+      bestellungId,
+      bestellung.referenz,
+    )
+
+    await conn.commit()
+    console.log(
+      `[Zahlung] ${bestellung.referenz} erstattet: −${bestellung.credits} Credits, ` +
+        `neuer Stand ${stand}`,
+    )
+    return {
+      status: 'erstattet',
+      bestellung: { ...bestellung, status: 'erstattet', erstattetAm: jetzt },
+      credits: stand,
+    }
+  } catch (cause) {
+    await conn.rollback()
+    throw cause
+  } finally {
+    conn.release()
+  }
+}
+
+/** Das Guthabenbuch eines Kontos — jüngste zuerst. */
+export async function guthabenBuch(benutzerId: number): Promise<GuthabenBuchung[]> {
+  await ensureReady()
+  const rows: Record<string, unknown>[] = await getPool().query(
+    `SELECT * FROM guthaben_buchungen WHERE benutzer_id = ? ORDER BY id DESC LIMIT 200`,
+    [benutzerId],
+  )
+  return rows.map((row) => ({
+    id: Number(row.id),
+    menge: Number(row.menge) || 0,
+    grund: String(row.grund) as GuthabenGrund,
+    bezugId: row.bezug_id == null ? null : Number(row.bezug_id),
+    notiz: String(row.notiz ?? ''),
+    standDanach: Number(row.stand_danach) || 0,
+    angelegtAm: Number(row.angelegt_am) || 0,
+  }))
 }
 
 /** Bricht eine noch nicht bezahlte Bestellung ab. Bezahlte bleiben unangetastet. */
@@ -1812,7 +2150,7 @@ export async function kaufeVideo(benutzerId: number, videoId: number): Promise<K
       return { status: 'zu-wenig', kosten, credits }
     }
 
-    await conn.query('UPDATE benutzer SET credits = credits - ? WHERE id = ?', [kosten, benutzerId])
+    await schreibeGuthaben(conn, benutzerId, -kosten, 'video', videoId, String(video.titel ?? ''))
     await conn.query(
       'INSERT IGNORE INTO benutzer_videos (benutzer_id, video_id) VALUES (?, ?)',
       [benutzerId, videoId],
@@ -1898,7 +2236,7 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
       return { status: 'zu-wenig', kosten, credits }
     }
 
-    await conn.query('UPDATE benutzer SET credits = credits - ? WHERE id = ?', [kosten, benutzerId])
+    await schreibeGuthaben(conn, benutzerId, -kosten, 'paket', paketId)
     await conn.query(
       'INSERT IGNORE INTO benutzer_pakete (benutzer_id, paket_id) VALUES (?, ?)',
       [benutzerId, paketId],

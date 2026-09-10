@@ -5,12 +5,17 @@ import GButton from '@/components/ui/GButton.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useFortschrittStore } from '@/stores/fortschritt'
+import { useKontaktStore } from '@/stores/kontakt'
 import { useVideosStore } from '@/stores/videos'
 
 const router = useRouter()
 const auth = useAuthStore()
 const videos = useVideosStore()
 const fortschritt = useFortschrittStore()
+const kontakt = useKontaktStore()
+
+// Einmal je Sitzung: die Adresse steht in der Fußzeile jeder Seite.
+void kontakt.laden()
 
 /**
  * Nach der Abmeldung entscheidet wieder der Server, was sichtbar ist —
@@ -87,6 +92,9 @@ async function logout() {
       <div class="footer-inner t-meta">
         <span>© 2026 stneuro</span>
         <div class="footer-links">
+          <!-- Wohin man sich wendet, wenn etwas klemmt. Ohne gepflegte
+               Adresse bleibt die Stelle leer statt ins Nichts zu zeigen. -->
+          <a v-if="kontakt.email" :href="`mailto:${kontakt.email}`">{{ kontakt.email }}</a>
           <a href="#datenschutz">Datenschutz</a>
           <a href="#impressum">Impressum</a>
         </div>

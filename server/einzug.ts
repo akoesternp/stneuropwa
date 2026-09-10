@@ -1,5 +1,5 @@
 import { anbieterReferenzVon, bucheBestellung } from './db.js'
-import { erfassePaypalZahlung } from './paypal.js'
+import { erfassePaypalZahlung, erstattePaypalZahlung, leseVorgang } from './paypal.js'
 import type { Bestellung } from '../shared/types.js'
 
 /**
@@ -66,4 +66,42 @@ export async function ziehePaypalEin(bestellung: Bestellung): Promise<EinzugErge
       `neuer Stand ${gebucht.credits}`,
   )
   return { status: 'gebucht', gutgeschrieben: bestellung.credits, credits: gebucht.credits }
+}
+
+/**
+ * Zahlt einen PayPal-Kauf zurück.
+ *
+ * Erstattet wird gegen die ERFASSUNGSnummer; gespeichert ist bei uns die des
+ * Vorgangs. Sie wird deshalb frisch bei PayPal nachgeschlagen — dort steht
+ * ohnehin die Wahrheit darüber, ob und wie viel geflossen ist.
+ */
+export async function erstattePaypalKauf(
+  bestellung: Bestellung,
+): Promise<{ ok: true; erstattungId: string } | { ok: false; grund: string }> {
+  const vorgangId = await anbieterReferenzVon(bestellung.id)
+  if (!vorgangId) return { ok: false, grund: 'Zu dieser Bestellung gibt es keinen PayPal-Vorgang.' }
+
+  const stand = await leseVorgang(vorgangId)
+  if (stand.status !== 'bezahlt') {
+    return { ok: false, grund: 'PayPal weist zu diesem Vorgang keine abgeschlossene Zahlung aus.' }
+  }
+  if (stand.betragCent !== bestellung.betragCent) {
+    return {
+      ok: false,
+      grund: `Bei PayPal stehen ${(stand.betragCent / 100).toFixed(2)} €, bestellt waren ${(bestellung.betragCent / 100).toFixed(2)} €.`,
+    }
+  }
+
+  const zurueck = await erstattePaypalZahlung(
+    stand.zahlungId,
+    bestellung.betragCent,
+    bestellung.referenz,
+  )
+  if (zurueck.status === 'fehlgeschlagen') {
+    console.error(`[Zahlung] Rückzahlung fehlgeschlagen (${bestellung.referenz}): ${zurueck.grund}`)
+    return { ok: false, grund: 'PayPal hat die Rückzahlung abgelehnt.' }
+  }
+
+  console.log(`[Zahlung] ${bestellung.referenz}: bei PayPal zurückgezahlt (${zurueck.erstattungId})`)
+  return { ok: true, erstattungId: zurueck.erstattungId }
 }

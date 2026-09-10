@@ -132,6 +132,16 @@ portalRouter.get('/zahlung/konfig', (_req, res) => {
  * damit werben dürfen. Preisgegeben wird nur der Betrag und wie lange er noch
  * gilt — wie viele Plätze eine Aktion noch hat, ist Betriebsinterna.
  */
+/**
+ * Wohin man sich wenden kann.
+ *
+ * Aus der Umgebung wie alles andere; ohne Angabe bleibt das Feld leer und
+ * die Oberfläche schweigt, statt auf eine erfundene Adresse zu zeigen.
+ */
+portalRouter.get('/kontakt', (_req, res) => {
+  res.json({ email: process.env.KONTAKT_EMAIL ?? '' })
+})
+
 portalRouter.get('/startguthaben', async (_req, res) => {
   const aktion = await findeAktiveAktion(START_CREDITS)
 

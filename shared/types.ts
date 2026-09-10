@@ -161,11 +161,18 @@ export type Zahlweg = 'vorkasse' | 'paypal'
  * `bezahlt` = gutgeschrieben, genau einmal.
  * `storniert` = von Hand abgebrochen, nie gebucht.
  * `abgelaufen` = zu lange nichts passiert; bleibt als Beleg stehen.
+ * `erstattet` = zurückgezahlt, die Credits sind wieder abgebucht.
  *
  * Der Stand ist ein Hinweis, keine Sperre: kommt Geld zu einem Entwurf,
  * lässt er sich genauso buchen wie eine bestätigte Bestellung.
  */
-export type BestellStatus = 'entwurf' | 'offen' | 'bezahlt' | 'storniert' | 'abgelaufen'
+export type BestellStatus =
+  | 'entwurf'
+  | 'offen'
+  | 'bezahlt'
+  | 'storniert'
+  | 'abgelaufen'
+  | 'erstattet'
 
 /**
  * Eine Bestellung über Credits.
@@ -188,6 +195,7 @@ export interface Bestellung {
   /** Wann der Käufer gemeldet hat, dass er überwiesen hat. */
   bestaetigtAm: number | null
   bezahltAm: number | null
+  erstattetAm: number | null
 }
 
 /* ── Aktionen ──────────────────────────────────────────────────────────── */
@@ -222,6 +230,39 @@ export interface StartguthabenInfo {
   aktion: { name: string; credits: number; endetAm: number } | null
 }
 
+/**
+ * Wofür sich ein Guthabenstand geändert hat.
+ *
+ * `anfang` gibt es höchstens einmal je Konto — der Bestand, den es vor dem
+ * Guthabenbuch schon gab. `hand` ist eine Änderung aus der Verwaltung.
+ */
+export type GuthabenGrund =
+  | 'anfang'
+  | 'start'
+  | 'kauf'
+  | 'video'
+  | 'paket'
+  | 'hand'
+  | 'erstattung'
+
+/**
+ * Eine Zeile im Guthabenbuch.
+ *
+ * `menge` ist vorzeichenbehaftet: plus für Gutschriften, minus für alles,
+ * was abgeht. `standDanach` steht mit dabei, damit sich rückblickend fragen
+ * lässt, ob der Stand je unter einen Betrag gefallen ist — ohne die ganze
+ * Kette nachzurechnen. Genau daran hängt, ob ein Kauf noch erstattbar ist.
+ */
+export interface GuthabenBuchung {
+  id: number
+  menge: number
+  grund: GuthabenGrund
+  bezugId: number | null
+  notiz: string
+  standDanach: number
+  angelegtAm: number
+}
+
 /** Eine Bestellung aus Sicht der Verwaltung — mit dem Besteller daneben. */
 export interface BestellungEintrag extends Bestellung {
   benutzerId: number
@@ -229,6 +270,13 @@ export interface BestellungEintrag extends Bestellung {
   name: string
   /** Die PayPal-Vorgangsnummer, leer bei Vorkasse. */
   anbieterReferenz: string
+  /**
+   * Ob sich der Kauf noch zurücknehmen lässt: bezahlt, und seit der
+   * Gutschrift ist der Guthabenstand nie unter die gekaufte Menge
+   * gefallen. Errechnet, nicht gespeichert — er ändert sich mit jeder
+   * Freischaltung.
+   */
+  erstattbar: boolean
 }
 
 /**
