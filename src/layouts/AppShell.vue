@@ -53,7 +53,7 @@ async function logout() {
                 <span class="t-meta">{{
                   auth.user?.pakete.length
                     ? auth.user!.pakete.join(' · ')
-                    : 'Keine Pakete zugewiesen'
+                    : 'Noch kein ganzes Paket'
                 }}</span>
               </span>
             </span>

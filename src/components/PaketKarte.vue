@@ -17,9 +17,9 @@ const props = defineProps<{ paket: PaketInhalt }>()
 const auth = useAuthStore()
 
 /**
- * Freigeschaltet heißt: dem Nutzer ist dieses PAKET zugewiesen.
- * Einzeln freigeschaltete Übungen daraus zählen hier bewusst nicht — sonst
- * stünde „Freigeschaltet" an einem Paket, von dem man nur ein Video hat.
+ * Freigeschaltet heißt: jede aktive Übung dieses Pakets ist für ihn offen —
+ * gleich ob über einen Paketkauf, einzeln oder öffentlich. Der Server rechnet
+ * das aus (auth.user.pakete), damit Karte und Kauf dieselbe Antwort geben.
  */
 const freigeschaltet = computed(() => auth.user?.pakete.includes(props.paket.name) ?? false)
 
@@ -84,17 +84,6 @@ const vorschauVideos = computed(() =>
           das Schloss — was es kostet, sagt sonst nichts auf dieser Karte.
         -->
         <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
-        <!--
-          Jede Übung schon da, das Paket selbst aber nicht: dann gibt es nichts
-          mehr zu kaufen, und ein Preis wäre eine falsche Aussage. Nur für
-          Angemeldete — bei Gästen hieße „freigeschaltet" bloß „öffentlich".
-        -->
-        <span
-          v-else-if="auth.isAuthenticated && paket.videos.length && !offen"
-          class="marke frei"
-        >
-          Alles freigeschaltet
-        </span>
         <!--
           Der persönliche Preis, nicht der Listenpreis: wer die Hälfte des
           Pakets schon hat, soll auf der Karte sehen, dass es ihn weniger

@@ -254,7 +254,7 @@ const zeigeEigenes = computed(
   () => auth.isAuthenticated && !filterAktiv.value && !zielgruppe.value,
 )
 
-/** Die Pakete des Nutzers — Namensvergleich, wie an der Paketkarte auch. */
+/** Die Pakete, die er vollständig hat — Namensvergleich, wie an der Paketkarte auch. */
 const meinePakete = computed(() =>
   zeigeEigenes.value
     ? pakete.pakete.filter((paket) => auth.user?.pakete.includes(paket.name))

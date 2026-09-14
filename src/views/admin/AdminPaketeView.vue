@@ -9,7 +9,7 @@ import { MERKMALE_SICHTBAR } from '@shared/types'
 import type { Bereich, PaketEintrag } from '@shared/types'
 
 /**
- * Pakete bündeln Videos und werden Nutzern zugewiesen.
+ * Pakete bündeln Videos; ein Kauf schaltet die enthaltenen einzeln frei.
  *
  * Die Zuordnung wird hier gepflegt, nicht am einzelnen Video: bei mehreren
  * hundert Übungen ist „welche gehören in dieses Paket" die Frage, die man
@@ -267,8 +267,8 @@ async function remove(row: PaketEintrag) {
       <div class="titles">
         <h2 class="t-h2">Pakete</h2>
         <p class="t-subhead">
-          Bündeln Übungen und werden Nutzern zugewiesen. Welche Übungen enthalten sind, wird hier
-          gepflegt — nicht am einzelnen Video.
+          Bündeln Übungen. Ein Kauf schaltet die Übungen frei, die in dem Moment enthalten sind —
+          später ergänzte sind nicht mit gekauft. Welche Übungen enthalten sind, wird hier gepflegt.
         </p>
       </div>
       <GButton @click="startNew">Neues Paket</GButton>

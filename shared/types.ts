@@ -293,7 +293,7 @@ export interface BestellungEintrag extends Bestellung {
  * Gliederung.
  *
  * Sie steuert bewusst KEINE Berechtigung: sichtbar bleibt, was öffentlich ist,
- * in einem zugewiesenen Paket liegt oder einzeln freigeschaltet wurde. Die
+ * oder für den Nutzer freigeschaltet wurde. Die
  * Zielgruppe sagt nur, für wen etwas gedacht ist.
  */
 export interface Zielgruppe {
@@ -310,7 +310,7 @@ export interface ZielgruppeEintrag extends Zielgruppe {
   videoIds: number[]
 }
 
-/** Ein Paket bündelt Videos; Nutzern werden Pakete zugewiesen. */
+/** Ein Paket bündelt Videos — ein Kauf schaltet die enthaltenen einzeln frei. */
 export interface Paket {
   id: number
   name: string
@@ -519,7 +519,10 @@ export interface Benutzer {
   id: number
   email: string
   name: string
-  /** Namen der zugewiesenen Pakete — bestimmt, welche Kacheln er sieht. */
+  /**
+   * Namen der Pakete, deren aktive Übungen er alle hat. Nur Anzeige — was er
+   * sehen darf, entscheidet allein die Freischaltung der einzelnen Videos.
+   */
   pakete: string[]
   /**
    * Guthaben in Credits, mit dem sich Übungen und Pakete selbst freischalten
@@ -534,9 +537,7 @@ export interface BenutzerEintrag {
   email: string
   name: string
   aktiv: boolean
-  /** IDs der zugewiesenen Pakete. */
-  paketIds: number[]
-  /** IDs einzeln freigeschalteter Videos — zusätzlich zu den Paketen. */
+  /** IDs der freigeschalteten Videos — auch der über einen Paketkauf. */
   videoIds: number[]
   /** Guthaben in Credits. Im Backend frei setzbar. */
   credits: number

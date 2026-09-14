@@ -42,7 +42,7 @@ const paket = computed(() =>
   pakete.pakete.find((eintrag) => eintrag.id === Number(route.params.id)),
 )
 
-/** Hat der Nutzer das ganze Paket? Einzelfreischaltungen zählen hier nicht. */
+/** Hat der Nutzer jede Übung des Pakets? Auf welchem Weg, spielt keine Rolle. */
 const hatPaket = computed(() => auth.user?.pakete.includes(paket.value?.name ?? '') ?? false)
 const offeneAnzahl = computed(
   () => paket.value?.videos.filter((video) => !video.freigeschaltet).length ?? 0,
@@ -107,13 +107,6 @@ function anteil(videoId: number, dauer: string): number {
           </p>
         </div>
         <span v-if="hatPaket" class="marke frei">Freigeschaltet</span>
-        <!-- Jede Übung schon da, das Paket nicht: nichts mehr zu kaufen. -->
-        <span
-          v-else-if="auth.isAuthenticated && paket.videos.length && !offeneAnzahl"
-          class="marke frei"
-        >
-          Alles freigeschaltet
-        </span>
       </header>
 
       <!-- Der Kaufbereich verschwindet mit der letzten Sperre; ohne diese
@@ -149,7 +142,8 @@ function anteil(videoId: number, dauer: string): number {
             {{ offeneAnzahl }} von {{ paket.videos.length }} Übungen dieses Pakets
             {{ offeneAnzahl === 1 ? 'ist' : 'sind' }} für Sie noch gesperrt. Das ganze Paket kostet
             {{ paket.kostenFuerSie }} Neuro — einzeln wären es
-            {{ einzelpreisOffen }}. Ihr Guthaben beträgt {{ guthaben }}.
+            {{ einzelpreisOffen }}. Freigeschaltet werden die Übungen, die jetzt im Paket sind.
+            Ihr Guthaben beträgt {{ guthaben }}.
           </p>
           <div class="cta-knoepfe">
             <GButton

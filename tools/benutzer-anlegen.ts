@@ -6,8 +6,8 @@
  *
  * Die letzte Angabe ist das Startguthaben in Credits (ohne Angabe: 0).
  *
- * Pakete werden hier bewusst nicht zugewiesen — das ist Sache der Verwaltung
- * im Backend (/admin), wo man sieht, welche Pakete es gibt.
+ * Freigeschaltet wird hier bewusst nichts — das ist Sache der Verwaltung im
+ * Backend (/admin), wo man sieht, welche Videos und Pakete es gibt.
  */
 import { closeDb, findBenutzerByEmail, saveBenutzer } from '../server/db.js'
 import { hashPassword } from '../server/passwords.js'
@@ -34,7 +34,6 @@ const id = await saveBenutzer(null, {
   name,
   aktiv: true,
   passwortHash: await hashPassword(passwort),
-  paketIds: [],
   videoIds: [],
   credits,
 })

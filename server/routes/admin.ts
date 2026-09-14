@@ -81,7 +81,7 @@ adminRouter.get('/benutzer', async (_req, res) => {
 })
 
 /**
- * Anlegen (ohne id) bzw. Ändern (mit id) samt Paketzuweisung. `passwort` wird
+ * Anlegen (ohne id) bzw. Ändern (mit id) samt Freischaltungen. `passwort` wird
  * nur geschrieben, wenn ein neues eingetippt wurde — ein leeres Feld heißt
  * „das bestehende behalten", damit sich ein Nutzer bearbeiten lässt, ohne
  * sein Passwort zu kennen.
@@ -101,12 +101,7 @@ adminRouter.put('/benutzer', async (req, res) => {
     return
   }
 
-  // Nur Pakete und Videos, die es gibt — sonst stünden Karteileichen in der Zuweisung.
-  const bekanntePakete = new Set((await listPakete()).map((paket) => paket.id))
-  const paketIds = (Array.isArray(body.paketIds) ? body.paketIds : [])
-    .map(Number)
-    .filter((paketId: number) => bekanntePakete.has(paketId))
-
+  // Nur Videos, die es gibt — sonst stünden Karteileichen in der Freischaltung.
   const bekannteVideos = new Set((await listVideos()).map((video) => video.id))
   const videoIds = (Array.isArray(body.videoIds) ? body.videoIds : [])
     .map(Number)
@@ -127,7 +122,6 @@ adminRouter.put('/benutzer', async (req, res) => {
       name: String(body.name ?? ''),
       aktiv,
       passwortHash: password ? await hashPassword(password) : null,
-      paketIds,
       videoIds,
       credits,
     })
@@ -220,13 +214,6 @@ adminRouter.delete('/pakete/:id', async (req, res) => {
     })
     return
   }
-  if (ergebnis === 'benutzer') {
-    res.status(409).json({
-      error: 'Dieses Paket ist noch Nutzern zugewiesen. Bitte zuerst die Zuweisungen entfernen.',
-    })
-    return
-  }
-
   res.json({ ok: true })
 })
 

@@ -331,18 +331,10 @@ async function createSchema(): Promise<void> {
       )
     }
 
-    await conn.query(
-      `CREATE TABLE IF NOT EXISTS benutzer_pakete (
-        benutzer_id INT UNSIGNED NOT NULL,
-        paket_id INT UNSIGNED NOT NULL,
-        PRIMARY KEY (benutzer_id, paket_id),
-        KEY ix_paket (paket_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    )
-
     /*
-     * Einzelfreischaltungen: ein Video kann einem Nutzer auch ohne dessen
-     * Pakete zugewiesen sein — zusätzlich, nie stattdessen.
+     * Freischaltungen: welcher Nutzer welches Video sehen darf. Die EINZIGE
+     * Stelle dafür — ein Paketkauf trägt hier die Videos des Pakets ein,
+     * statt das Paket selbst zu vermerken.
      */
     await conn.query(
       `CREATE TABLE IF NOT EXISTS benutzer_videos (
@@ -352,6 +344,31 @@ async function createSchema(): Promise<void> {
         KEY ix_video (video_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     )
+
+    /*
+     * Früher gab es daneben benutzer_pakete: ein zugewiesenes Paket schaltete
+     * alles frei, was jeweils darin lag — auch später Hinzugekommenes. Die
+     * Zuweisungen werden einmalig in Freischaltungen der Videos übersetzt,
+     * die in diesem Moment im Paket liegen; danach fällt die Tabelle weg. Ihr
+     * Fehlen IST die Migrationsmarke.
+     *
+     * Übernommen wird großzügig, auch aus inaktiven Paketen und auch inaktive
+     * Videos: wer für ein Paket bezahlt hat, soll nicht leer ausgehen, weil es
+     * gerade abgeschaltet war. Ein inaktives Video bleibt ohnehin unsichtbar.
+     *
+     * Keine gemeinsame Transaktion — DROP schlösse sie ohnehin ab. Bricht es
+     * dazwischen ab, läuft beim nächsten Start das INSERT IGNORE noch einmal.
+     */
+    const altePaketTabelle: unknown[] = await conn.query(`SHOW TABLES LIKE 'benutzer_pakete'`)
+    if (altePaketTabelle.length) {
+      await conn.query(
+        `INSERT IGNORE INTO benutzer_videos (benutzer_id, video_id)
+         SELECT bp.benutzer_id, vp.video_id
+           FROM benutzer_pakete bp
+           JOIN video_pakete vp ON vp.paket_id = bp.paket_id`,
+      )
+      await conn.query(`DROP TABLE benutzer_pakete`)
+    }
 
     /*
      * Fortschritt je Nutzer und Video. Bewusst kein FOREIGN KEY: die Zeilen
@@ -636,37 +653,41 @@ export async function findBenutzerById(id: number): Promise<BenutzerRow | null> 
   return rows[0] ? toBenutzerRow(rows[0]) : null
 }
 
-/** Namen der aktiven Pakete eines Nutzers — für /auth/me und die Kachel-Sicht. */
+/**
+ * Die aktiven Pakete, die ein Nutzer vollständig hat — für /auth/me, die
+ * Marke „Freigeschaltet" und „Ihre Pakete".
+ *
+ * Ein Paket besitzt niemand; es gilt als freigeschaltet, wenn jede aktive
+ * Übung darin für ihn sichtbar ist, gleich auf welchem Weg. Kommt eine neue
+ * hinzu, ist es das nicht mehr, bis er auch sie hat. Ein Paket ohne aktive
+ * Übung zählt nicht.
+ */
 export async function paketNamenFuer(benutzerId: number): Promise<string[]> {
   await ensureReady()
   const rows: { name: string }[] = await getPool().query(
-    `SELECT p.name FROM benutzer_pakete bp
-     JOIN pakete p ON p.id = bp.paket_id AND p.aktiv = 1
-     WHERE bp.benutzer_id = ? ORDER BY p.sortierung, p.name`,
+    `SELECT p.name FROM pakete p
+      WHERE p.aktiv = 1
+        AND EXISTS (SELECT 1 FROM video_pakete vp
+                      JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
+                     WHERE vp.paket_id = p.id)
+        AND NOT EXISTS (SELECT 1 FROM video_pakete vp
+                          JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
+                         WHERE vp.paket_id = p.id AND NOT ${SICHTBAR_FUER_NUTZER})
+      ORDER BY p.sortierung, p.name`,
     [benutzerId],
   )
   return rows.map((row) => String(row.name))
 }
 
-/** Alle Nutzer samt Paket- und Einzelvideo-Zuweisung — die Liste der Verwaltung. */
+/** Alle Nutzer samt ihren Freischaltungen — die Liste der Verwaltung. */
 export async function listBenutzer(): Promise<BenutzerEintrag[]> {
   await ensureReady()
   const rows: Record<string, unknown>[] = await getPool().query(
     'SELECT id, email, name, aktiv, credits FROM benutzer ORDER BY email',
   )
-  const pakete: { benutzer_id: number; paket_id: number }[] = await getPool().query(
-    'SELECT benutzer_id, paket_id FROM benutzer_pakete',
-  )
   const videos: { benutzer_id: number; video_id: number }[] = await getPool().query(
     'SELECT benutzer_id, video_id FROM benutzer_videos',
   )
-
-  const paketeVon = new Map<number, number[]>()
-  for (const z of pakete) {
-    const liste = paketeVon.get(Number(z.benutzer_id)) ?? []
-    liste.push(Number(z.paket_id))
-    paketeVon.set(Number(z.benutzer_id), liste)
-  }
 
   const videosVon = new Map<number, number[]>()
   for (const z of videos) {
@@ -681,7 +702,6 @@ export async function listBenutzer(): Promise<BenutzerEintrag[]> {
     name: String(row.name ?? ''),
     aktiv: Number(row.aktiv) === 1,
     credits: Number(row.credits) || 0,
-    paketIds: paketeVon.get(Number(row.id)) ?? [],
     videoIds: videosVon.get(Number(row.id)) ?? [],
   }))
 }
@@ -692,15 +712,14 @@ export interface BenutzerSpeichern {
   aktiv: boolean
   /** Leer = bestehendes Passwort behalten (beim Anlegen Pflicht, prüft die Route). */
   passwortHash: string | null
-  paketIds: number[]
   videoIds: number[]
   /** Guthaben in Credits — im Backend frei setzbar, nie negativ. */
   credits: number
 }
 
 /**
- * Anlegen bzw. Ändern samt Paketzuweisung in EINER Transaktion — ein Nutzer
- * ohne seine Pakete wäre nur ein halber Datensatz.
+ * Anlegen bzw. Ändern samt Freischaltungen in EINER Transaktion — ein Nutzer
+ * ohne seine Freischaltungen wäre nur ein halber Datensatz.
  */
 export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern): Promise<number> {
   await ensureReady()
@@ -759,14 +778,6 @@ export async function saveBenutzer(id: number | null, daten: BenutzerSpeichern):
           daten.credits,
           Date.now(),
         ],
-      )
-    }
-
-    await conn.query('DELETE FROM benutzer_pakete WHERE benutzer_id = ?', [benutzerId])
-    if (daten.paketIds.length) {
-      await conn.batch(
-        'INSERT INTO benutzer_pakete (benutzer_id, paket_id) VALUES (?, ?)',
-        daten.paketIds.map((paketId) => [benutzerId, paketId]),
       )
     }
 
@@ -897,7 +908,6 @@ export async function deleteBenutzer(id: number): Promise<void> {
   const conn = await getPool().getConnection()
   try {
     await conn.beginTransaction()
-    await conn.query('DELETE FROM benutzer_pakete WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM benutzer_videos WHERE benutzer_id = ?', [id])
     await conn.query('DELETE FROM fortschritt WHERE benutzer_id = ?', [id])
     /*
@@ -1022,23 +1032,18 @@ export async function savePaket(
 }
 
 /**
- * Löschen nur, wenn nichts mehr daran hängt. Videos stillschweigend mit zu
- * löschen oder Zuweisungen verschwinden zu lassen, wäre Datenverlust auf einen
- * Klick — die Route macht daraus eine verständliche Fehlermeldung.
+ * Löschen nur, wenn keine Videos mehr darin liegen — sie stillschweigend mit
+ * zu löschen wäre Datenverlust auf einen Klick; die Route macht daraus eine
+ * verständliche Fehlermeldung. Freischaltungen hängen an den Videos, nicht am
+ * Paket: wer es gekauft hat, verliert durch das Löschen nichts.
  */
-export async function deletePaket(id: number): Promise<'ok' | 'videos' | 'benutzer'> {
+export async function deletePaket(id: number): Promise<'ok' | 'videos'> {
   await ensureReady()
   const [videos]: { anzahl: number }[] = await getPool().query(
     'SELECT COUNT(*) anzahl FROM video_pakete WHERE paket_id = ?',
     [id],
   )
   if (Number(videos?.anzahl)) return 'videos'
-
-  const [nutzer]: { anzahl: number }[] = await getPool().query(
-    'SELECT COUNT(*) anzahl FROM benutzer_pakete WHERE paket_id = ?',
-    [id],
-  )
-  if (Number(nutzer?.anzahl)) return 'benutzer'
 
   await getPool().query('DELETE FROM zielgruppe_pakete WHERE paket_id = ?', [id])
   await getPool().query('DELETE FROM pakete WHERE id = ?', [id])
@@ -1052,24 +1057,19 @@ const VIDEO_SPALTEN =
    v.bereich, v.schwierigkeit, v.hilfsmittel, v.sortierung, v.aktiv`
 
 /**
- * Die Sichtbarkeitsregel für einen angemeldeten Nutzer: öffentlich (in keinem
- * Paket), über ein zugewiesenes aktives Paket, oder einzeln freigeschaltet.
+ * Die Sichtbarkeitsregel für einen angemeldeten Nutzer: öffentlich oder für
+ * ihn freigeschaltet. Pakete kommen darin nicht vor — ein Paketkauf trägt
+ * seine Videos einzeln in benutzer_videos ein, und nur das zählt.
  *
  * Steckt in einer Konstanten, damit Kachel-Liste, Paketübersicht und
  * Stream-Endpunkt garantiert dieselbe Regel anwenden — zwei Fassungen
  * derselben Frage laufen früher oder später auseinander, und hier hinge an
  * der Abweichung, wer fremde Inhalte sieht.
  *
- * Erwartet zweimal die Benutzer-ID als Parameter.
+ * Erwartet einmal die Benutzer-ID als Parameter.
  */
 const SICHTBAR_FUER_NUTZER = `(
   v.oeffentlich = 1
-  OR EXISTS (
-    SELECT 1 FROM video_pakete vp
-    JOIN pakete p ON p.id = vp.paket_id AND p.aktiv = 1
-    WHERE vp.video_id = v.id
-      AND vp.paket_id IN (SELECT paket_id FROM benutzer_pakete WHERE benutzer_id = ?)
-  )
   OR EXISTS (SELECT 1 FROM benutzer_videos bv WHERE bv.video_id = v.id AND bv.benutzer_id = ?)
 )`
 
@@ -1200,7 +1200,7 @@ export async function katalogVideos(benutzerId: number | null): Promise<KatalogV
           `SELECT ${spalten}, ${SICHTBAR_FUER_NUTZER} AS freigeschaltet FROM videos v
            WHERE v.aktiv = 1 AND (${imAngebot} OR ${SICHTBAR_FUER_NUTZER})
            ORDER BY v.sortierung, v.id`,
-          [benutzerId, benutzerId, benutzerId, benutzerId],
+          [benutzerId, benutzerId],
         )
 
   const videos: KatalogVideo[] = rows.map((row) => ({
@@ -1240,8 +1240,7 @@ export async function listVideos(): Promise<Video[]> {
 
 /**
  * Die Kacheln, die ein Aufrufer sehen darf: öffentliche für alle, dazu die
- * Videos der zugewiesenen aktiven Pakete und die einzeln freigeschalteten
- * des angemeldeten Nutzers.
+ * für den angemeldeten Nutzer freigeschalteten.
  *
  * Entschieden wird hier, nicht in der Oberfläche — was der Browser nie
  * bekommt, kann er auch nicht anzeigen.
@@ -1258,7 +1257,7 @@ export async function sichtbareVideos(benutzerId: number | null): Promise<Video[
       : await getPool().query(
           `SELECT ${VIDEO_SPALTEN} FROM videos v
            WHERE v.aktiv = 1 AND ${SICHTBAR_FUER_NUTZER} ORDER BY v.sortierung, v.id`,
-          [benutzerId, benutzerId],
+          [benutzerId],
         )
 
   return mitPaketen(rows)
@@ -1284,7 +1283,7 @@ export async function darfVideoSehen(
       : await getPool().query(
           `SELECT ${VIDEO_SPALTEN} FROM videos v
            WHERE v.id = ? AND v.aktiv = 1 AND ${SICHTBAR_FUER_NUTZER}`,
-          [videoId, benutzerId, benutzerId],
+          [videoId, benutzerId],
         )
 
   return rows[0] ? (await mitPaketen(rows))[0]! : null
@@ -1440,7 +1439,7 @@ export async function paketInhalte(benutzerId: number | null): Promise<
      ORDER BY vp.sortierung, v.sortierung, v.id`,
     benutzerId === null
       ? [pakete.map((paket) => paket.id)]
-      : [benutzerId, benutzerId, pakete.map((paket) => paket.id)],
+      : [benutzerId, pakete.map((paket) => paket.id)],
   )
 
   /*
@@ -2177,7 +2176,7 @@ export async function storniereBestellung(bestellungId: number): Promise<boolean
  * Stand prüfen und am Ende mehr ausgeben, als da war.
  *
  * Preis und Berechtigung kommen aus derselben Quelle wie überall sonst — was
- * ohnehin sichtbar ist (öffentlich, über ein Paket, bereits einzeln), kostet
+ * ohnehin sichtbar ist (öffentlich oder schon freigeschaltet), kostet
  * nichts und wird abgelehnt statt abgebucht.
  */
 export async function kaufeVideo(benutzerId: number, videoId: number): Promise<KaufErgebnis> {
@@ -2207,7 +2206,7 @@ export async function kaufeVideo(benutzerId: number, videoId: number): Promise<K
               ${SICHTBAR_FUER_NUTZER} AS schonFrei
          FROM videos v
         WHERE v.id = ? AND v.aktiv = 1`,
-      [benutzerId, benutzerId, videoId],
+      [benutzerId, videoId],
     )
     const video = zeilen[0]
     if (!video || (Number(video.oeffentlich) !== 1 && Number(video.imPaket) !== 1)) {
@@ -2242,12 +2241,11 @@ export async function kaufeVideo(benutzerId: number, videoId: number): Promise<K
 }
 
 /**
- * Schaltet ein ganzes Paket gegen Credits frei.
+ * Schaltet alle Übungen eines Pakets gegen Credits frei.
  *
- * Der Preis richtet sich nach der Zahl der aktiven Übungen im Paket, auch wenn
- * einzelne davon bereits freigeschaltet sind: der Paketpreis hängt am Paket,
- * nicht am Stand des Käufers. Gezahlt wird einmal — ein zweiter Kauf desselben
- * Pakets wird abgelehnt, nicht abgebucht.
+ * Bezahlt wird nur, was der Käufer noch nicht hat (paketPreisFuerNutzer), und
+ * freigeschaltet wird Übung für Übung — ein Paket selbst besitzt niemand. Hat
+ * er schon alles, wird der Kauf abgelehnt, nicht abgebucht.
  */
 export async function kaufePaket(benutzerId: number, paketId: number): Promise<KaufErgebnis> {
   await ensureReady()
@@ -2267,8 +2265,6 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
 
     const pakete: Record<string, unknown>[] = await conn.query(
       `SELECT p.id,
-              EXISTS (SELECT 1 FROM benutzer_pakete bp
-                       WHERE bp.paket_id = p.id AND bp.benutzer_id = ?) AS schonFrei,
               (SELECT COUNT(*) FROM video_pakete vp
                  JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1
                 WHERE vp.paket_id = p.id) AS anzahl,
@@ -2284,7 +2280,7 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
                 WHERE vp.paket_id = p.id AND NOT ${SICHTBAR_FUER_NUTZER}) AS offen
          FROM pakete p
         WHERE p.id = ? AND p.aktiv = 1`,
-      [benutzerId, benutzerId, benutzerId, paketId],
+      [benutzerId, paketId],
     )
     const paket = pakete[0]
     if (!paket) {
@@ -2292,13 +2288,12 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
       return { status: 'nicht-gefunden' }
     }
     /*
-     * Schon frei ist ein Paket auch, wenn er jede Übung darin bereits hat —
-     * einzeln, öffentlich oder über ein anderes Paket. Die bloße Zugehörigkeit
-     * wird bewusst nicht verkauft; kommt später eine Übung dazu, ist das Paket
-     * für ihn wieder kaufbar, zum Preis dessen, was dann fehlt.
+     * Schon frei ist ein Paket, wenn er jede Übung darin bereits hat — ob über
+     * einen früheren Paketkauf, einzeln oder öffentlich. Kommt später eine
+     * Übung dazu, ist es für ihn wieder kaufbar, zum Preis dessen, was fehlt.
      */
     const vollstaendig = Number(paket.anzahl) > 0 && Number(paket.offen) === 0
-    if (Number(paket.schonFrei) === 1 || vollstaendig) {
+    if (vollstaendig) {
       await conn.rollback()
       return { status: 'schon-frei' }
     }
@@ -2315,8 +2310,17 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
     }
 
     await schreibeGuthaben(conn, benutzerId, -kosten, 'paket', paketId)
+    /*
+     * Freigeschaltet werden die Übungen, die JETZT im Paket liegen — dieselbe
+     * Tabelle wie beim Einzelkauf. Was später ins Paket kommt, ist nicht mit
+     * gekauft. Öffentliche bleiben außen vor: sie waren nicht im Preis.
+     */
     await conn.query(
-      'INSERT IGNORE INTO benutzer_pakete (benutzer_id, paket_id) VALUES (?, ?)',
+      `INSERT IGNORE INTO benutzer_videos (benutzer_id, video_id)
+       SELECT ?, vp.video_id
+         FROM video_pakete vp
+         JOIN videos v ON v.id = vp.video_id AND v.aktiv = 1 AND v.oeffentlich = 0
+        WHERE vp.paket_id = ?`,
       [benutzerId, paketId],
     )
 

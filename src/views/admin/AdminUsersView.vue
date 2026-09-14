@@ -7,9 +7,13 @@ import { api, ApiError } from '@/api/client'
 import type { BenutzerEintrag, Column, Paket, Video } from '@/types'
 
 /**
- * Die Nutzerverwaltung: Zugänge anlegen, Pakete und einzelne Videos zuweisen,
- * sperren, löschen. Passwörter sind nur setzbar, nie lesbar — ein leeres Feld
- * beim Speichern lässt das bestehende unangetastet.
+ * Die Nutzerverwaltung: Zugänge anlegen, Videos freischalten, sperren,
+ * löschen. Passwörter sind nur setzbar, nie lesbar — ein leeres Feld beim
+ * Speichern lässt das bestehende unangetastet.
+ *
+ * Freigeschaltet wird immer das einzelne Video. Pakete sind hier nur ein
+ * Kurzweg, der ihre Videos auf einmal an- oder abhakt — genau wie ein
+ * Paketkauf im Portal.
  */
 const rows = ref<BenutzerEintrag[]>([])
 const pakete = ref<Paket[]>([])
@@ -20,7 +24,6 @@ interface Editor {
   email: string
   name: string
   aktiv: boolean
-  paketIds: number[]
   videoIds: number[]
   /** Guthaben in Credits. Im Formular Text, damit sich das Feld leeren lässt. */
   credits: string
@@ -82,7 +85,7 @@ const error = ref<string | null>(null)
 const columns: Column[] = [
   { label: 'E-Mail', width: 'minmax(220px,1fr)' },
   { label: 'Name', width: 'minmax(160px,1fr)' },
-  { label: 'Pakete', width: 'minmax(180px,1fr)' },
+  { label: 'Freigeschaltet', width: 'minmax(180px,1fr)' },
   { label: 'Neuro', align: 'right', width: '90px' },
   { label: 'Status', width: '110px' },
   { width: '210px' },
@@ -110,23 +113,79 @@ async function load() {
 }
 
 /**
- * Zuweisbar ist alles, was nicht ohnehin öffentlich ist — auch Videos ganz
- * ohne Paket. Vorher standen nur Paket-Videos zur Wahl, wodurch sich ein
- * Video, das weder öffentlich noch in einem Paket liegt, überhaupt nicht
- * freischalten ließ.
+ * Freischaltbar ist alles, was nicht ohnehin öffentlich ist — auch Videos
+ * ganz ohne Paket.
  */
 const paketVideos = computed(() => videos.value.filter((video) => !video.oeffentlich))
 
 onMounted(load)
 
-function paketNamen(row: BenutzerEintrag): string {
-  const namen = row.paketIds
-    .map((id) => pakete.value.find((paket) => paket.id === id)?.name)
-    .filter(Boolean)
-  if (row.videoIds.length) {
-    namen.push(`${row.videoIds.length} Video${row.videoIds.length === 1 ? '' : 's'} einzeln`)
+/** Die aktiven Videos eines Pakets — inaktive zählen nirgends mit. */
+function videosIn(paketId: number): Video[] {
+  return videos.value.filter((video) => video.aktiv && video.paketIds.includes(paketId))
+}
+
+interface PaketStand {
+  /** Davon frei — öffentlich oder in der Auswahl. */
+  frei: number
+  gesamt: number
+  /** Enthält es überhaupt etwas, das man freischalten müsste? */
+  freischaltbar: boolean
+}
+
+function standVon(paketId: number, videoIds: number[]): PaketStand {
+  const liste = videosIn(paketId)
+  return {
+    frei: liste.filter((video) => video.oeffentlich || videoIds.includes(video.id)).length,
+    gesamt: liste.length,
+    freischaltbar: liste.some((video) => !video.oeffentlich),
   }
-  return namen.length ? namen.join(', ') : '—'
+}
+
+/** Der Stand aller Pakete für die gerade bearbeitete Auswahl. */
+const paketStand = computed(
+  () =>
+    new Map(
+      pakete.value.map((paket) => [paket.id, standVon(paket.id, editing.value?.videoIds ?? [])]),
+    ),
+)
+
+/**
+ * Spalte „Freigeschaltet": die Pakete, die dieser Nutzer vollständig hat, und
+ * wie viele Videos insgesamt. Pakete aus lauter öffentlichen Videos stehen
+ * nicht dabei — die hat jeder, und die Spalte wäre bei allen gleich.
+ */
+function freigeschaltet(row: BenutzerEintrag): string {
+  const teile = pakete.value
+    .filter((paket) => {
+      const stand = standVon(paket.id, row.videoIds)
+      return stand.freischaltbar && stand.frei === stand.gesamt
+    })
+    .map((paket) => paket.name)
+  if (row.videoIds.length) {
+    teile.push(`${row.videoIds.length} Video${row.videoIds.length === 1 ? '' : 's'}`)
+  }
+  return teile.length ? teile.join(', ') : '—'
+}
+
+/**
+ * Hakt alle freischaltbaren Videos eines Pakets an — oder, wenn schon alle
+ * drin sind, wieder ab. Das Abhaken nimmt die Videos auch dann heraus, wenn
+ * sie zusätzlich in einem anderen Paket liegen; was am Ende gilt, zeigt die
+ * Liste darunter, und gespeichert wird erst mit „Speichern".
+ */
+function paketUmschalten(paketId: number) {
+  if (!editing.value) return
+  const ids = videosIn(paketId)
+    .filter((video) => !video.oeffentlich)
+    .map((video) => video.id)
+  const auswahl = new Set(editing.value.videoIds)
+  const alleDrin = ids.every((id) => auswahl.has(id))
+  for (const id of ids) {
+    if (alleDrin) auswahl.delete(id)
+    else auswahl.add(id)
+  }
+  editing.value.videoIds = [...auswahl]
 }
 
 function startNew() {
@@ -139,7 +198,6 @@ function startNew() {
     email: '',
     name: '',
     aktiv: true,
-    paketIds: [],
     videoIds: [],
     credits: '0',
   }
@@ -151,18 +209,13 @@ function startEdit(row: BenutzerEintrag) {
   newPassword.value = ''
   repeatPassword.value = ''
   editing.value = {
-    ...row,
-    paketIds: [...row.paketIds],
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    aktiv: row.aktiv,
     videoIds: [...row.videoIds],
     credits: String(row.credits),
   }
-}
-
-function togglePaket(id: number) {
-  if (!editing.value) return
-  const index = editing.value.paketIds.indexOf(id)
-  if (index === -1) editing.value.paketIds.push(id)
-  else editing.value.paketIds.splice(index, 1)
 }
 
 function toggleVideo(id: number) {
@@ -198,7 +251,6 @@ async function save() {
       name: editing.value.name,
       aktiv: editing.value.aktiv,
       passwort: newPassword.value,
-      paketIds: editing.value.paketIds,
       videoIds: editing.value.videoIds,
       credits: guthaben.value,
     })
@@ -236,7 +288,7 @@ async function remove(row: BenutzerEintrag) {
       <div class="titles">
         <h2 class="t-h2">Nutzer</h2>
         <p class="t-subhead">
-          Wer sich am Portal anmelden darf — und welche Pakete er sieht.
+          Wer sich am Portal anmelden darf — und welche Videos für ihn freigeschaltet sind.
         </p>
       </div>
       <GButton @click="startNew">Neuer Nutzer</GButton>
@@ -304,8 +356,17 @@ async function remove(row: BenutzerEintrag) {
             />
           </div>
 
+          <!--
+            Pakete sind nur ein Kurzweg: ein Haken setzt die Haken bei allen
+            Videos des Pakets, ein zweiter nimmt sie wieder heraus. Was gilt,
+            steht in der Liste darunter — dasselbe wie nach einem Paketkauf.
+          -->
           <div class="assign">
             <span class="t-eyebrow">Pakete</span>
+            <p class="hint">
+              Ein Haken schaltet alle Videos des Pakets frei. Kommt später ein Video ins Paket, ist
+              es nicht automatisch dabei.
+            </p>
             <p v-if="!pakete.length" class="hint">
               Es gibt noch keine Pakete — zuerst unter „Pakete" anlegen.
             </p>
@@ -313,22 +374,32 @@ async function remove(row: BenutzerEintrag) {
               <label v-for="paket in pakete" :key="paket.id" class="paket">
                 <input
                   type="checkbox"
-                  :checked="editing.paketIds.includes(paket.id)"
-                  @change="togglePaket(paket.id)"
+                  :checked="
+                    (paketStand.get(paket.id)?.gesamt ?? 0) > 0 &&
+                    paketStand.get(paket.id)?.frei === paketStand.get(paket.id)?.gesamt
+                  "
+                  :indeterminate="
+                    (paketStand.get(paket.id)?.frei ?? 0) > 0 &&
+                    (paketStand.get(paket.id)?.frei ?? 0) < (paketStand.get(paket.id)?.gesamt ?? 0)
+                  "
+                  :disabled="!paketStand.get(paket.id)?.freischaltbar"
+                  @change="paketUmschalten(paket.id)"
                 />
                 {{ paket.name }}
+                <span class="t-meta">
+                  {{ paketStand.get(paket.id)?.frei ?? 0 }}/{{ paketStand.get(paket.id)?.gesamt ?? 0 }}
+                </span>
                 <span v-if="!paket.aktiv" class="t-meta">(inaktiv)</span>
               </label>
             </div>
           </div>
 
           <!--
-            Einzelfreischaltungen wirken ZUSÄTZLICH zu den Paketen — für den Fall,
-            dass jemand genau ein Video bekommen soll, ohne das ganze Paket.
-            Öffentliche Videos stehen nicht zur Wahl, die sieht ohnehin jeder.
+            Die eigentliche Freischaltung. Öffentliche Videos stehen nicht zur
+            Wahl, die sieht ohnehin jeder.
           -->
           <div class="assign">
-            <span class="t-eyebrow">Einzelne Videos (zusätzlich zu den Paketen)</span>
+            <span class="t-eyebrow">Freigeschaltete Videos</span>
             <p v-if="!paketVideos.length" class="hint">
               Es gibt noch keine Videos, die freigeschaltet werden müssten — öffentliche sieht
               ohnehin jeder.
@@ -370,7 +441,7 @@ async function remove(row: BenutzerEintrag) {
       <template #row="{ row }">
         <span class="mail t-truncate">{{ row.email }}</span>
         <span class="muted t-truncate">{{ row.name || '—' }}</span>
-        <span class="muted t-truncate">{{ paketNamen(row) }}</span>
+        <span class="muted t-truncate">{{ freigeschaltet(row) }}</span>
         <span class="credits">{{ row.credits }}</span>
         <span :class="row.aktiv ? 'ok' : 'flag'">{{ row.aktiv ? 'aktiv' : 'gesperrt' }}</span>
         <div class="row-actions">

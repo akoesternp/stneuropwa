@@ -32,10 +32,10 @@ async function toBenutzer(row: {
 /**
  * Selbstregistrierung.
  *
- * Ein neues Konto bekommt weder Pakete noch Einzelfreischaltungen — es sieht
- * damit genau das, was auch ohne Anmeldung sichtbar ist. Der Gewinn liegt
- * woanders: das Portal merkt sich ab jetzt den Trainingsfortschritt, und der
- * Betreiber kann dem Konto später Pakete zuweisen.
+ * Ein neues Konto bekommt keine Freischaltungen — es sieht damit genau das,
+ * was auch ohne Anmeldung sichtbar ist. Der Gewinn liegt woanders: das Portal
+ * merkt sich ab jetzt den Trainingsfortschritt, und der Betreiber kann dem
+ * Konto später Übungen freischalten.
  *
  * Abschaltbar über REGISTRIERUNG=0 — falls Zugänge doch nur persönlich
  * vergeben werden sollen.
