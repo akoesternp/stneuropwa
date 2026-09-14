@@ -159,8 +159,12 @@ dig +short stneuro.np-dev.de AAAA        # leer oder die IPv6 dieses Servers
 
 ```bash
 apt update
-apt install -y apache2 mariadb-server git certbot rsync curl ca-certificates
+apt install -y sudo apache2 mariadb-server git certbot rsync curl ca-certificates
 ```
+
+`sudo` fehlt auf einem minimal installierten Debian — die Befehle unten
+brauchen es, um als Benutzer `stneuro` zu arbeiten (`sudo -u stneuro -H …`).
+Als root muss dafür niemand in die Gruppe `sudo`.
 
 Ist Apache schon da, bleibt es, wie es ist — apt spielt nur fehlende Pakete
 nach. Läuft bereits eine MariaDB oder MySQL, `mariadb-server` aus der Liste
