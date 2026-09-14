@@ -5,6 +5,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import type { Column, Video } from '@/types'
+import { MERKMALE_SICHTBAR } from '@shared/types'
 import type { Bereich, PaketEintrag } from '@shared/types'
 
 /**
@@ -79,7 +80,7 @@ const gefiltert = computed(() => {
     if (bereichFilter.value && video.bereich !== bereichFilter.value) return false
     if (!begriff) return true
 
-    return [video.titel, video.untertitel, video.bereich, video.hilfsmittel]
+    return [video.titel, video.untertitel, MERKMALE_SICHTBAR ? video.bereich : '', video.hilfsmittel]
       .join(' ')
       .toLowerCase()
       .includes(begriff)
@@ -88,6 +89,12 @@ const gefiltert = computed(() => {
 
 const sichtbar = computed(() => gefiltert.value.slice(0, MAX_ZEILEN))
 const verborgen = computed(() => Math.max(0, gefiltert.value.length - MAX_ZEILEN))
+
+/** Die Kurzangaben unter dem Titel einer Übung. */
+function metaZeile(video: Video): string {
+  const teile = MERKMALE_SICHTBAR ? [video.bereich, video.schwierigkeit, video.dauer] : [video.dauer]
+  return teile.filter(Boolean).join(' · ') || (MERKMALE_SICHTBAR ? 'ohne Merkmale' : '—')
+}
 
 /**
  * Die enthaltenen Übungen in Paketreihenfolge — die Stelle in videoIds IST
@@ -349,7 +356,7 @@ async function remove(row: PaketEintrag) {
                     <span v-if="!video.datei" class="marke ohne">keine Datei</span>
                   </span>
                   <span class="zeile-meta t-meta">
-                    {{ [video.bereich, video.schwierigkeit, video.dauer].filter(Boolean).join(' · ') || 'ohne Merkmale' }}
+                    {{ metaZeile(video) }}
                   </span>
                 </span>
 
@@ -392,10 +399,11 @@ async function remove(row: PaketEintrag) {
               <label class="suchfeld">
                 <span class="visually-hidden">Übungen durchsuchen</span>
                 <span class="lupe" aria-hidden="true">⌕</span>
-                <input v-model="suche" type="search" placeholder="Titel, Bereich, Hilfsmittel …" />
+                <input v-model="suche" type="search" :placeholder="MERKMALE_SICHTBAR ? 'Titel, Bereich, Hilfsmittel …' : 'Titel, Hilfsmittel …'" />
               </label>
 
               <GField
+                v-if="MERKMALE_SICHTBAR"
                 v-model="bereichFilter"
                 as="select"
                 :options="bereichOptions"
@@ -430,7 +438,7 @@ async function remove(row: PaketEintrag) {
                     <span v-if="video.oeffentlich" class="marke frei">öffentlich</span>
                   </span>
                   <span class="zeile-meta t-meta">
-                    {{ [video.bereich, video.schwierigkeit, video.dauer].filter(Boolean).join(' · ') || 'ohne Merkmale' }}
+                    {{ metaZeile(video) }}
                     <template v-if="anderePakete(video)">
                       · auch in: {{ anderePakete(video) }}
                     </template>

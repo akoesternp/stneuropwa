@@ -6,7 +6,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GField from '@/components/ui/GField.vue'
 import { api, ApiError } from '@/api/client'
 import { bildAlsVorschaubild, erzeugeVorschaubild } from '@/utils/vorschaubild'
-import { SCHWIERIGKEITEN } from '@shared/types'
+import { SCHWIERIGKEITEN, MERKMALE_SICHTBAR } from '@shared/types'
 import type { Bereich } from '@shared/types'
 import type { Column, Video } from '@/types'
 
@@ -86,7 +86,7 @@ const columns: Column[] = [
   { label: 'Titel', width: 'minmax(180px,1fr)' },
   { label: 'Untertitel', width: 'minmax(150px,0.9fr)' },
   { label: 'Dauer', width: '80px' },
-  { label: 'Bereich', width: 'minmax(120px,0.6fr)' },
+  ...(MERKMALE_SICHTBAR ? [{ label: 'Bereich', width: 'minmax(120px,0.6fr)' }] : []),
   { label: 'Sichtbar über', width: 'minmax(150px,0.9fr)' },
   { label: 'Datei', width: 'minmax(150px,0.8fr)' },
   { label: 'Status', width: '90px' },
@@ -635,7 +635,12 @@ async function remove(row: Video) {
           compact
         />
         <GField v-model="editing.sortierung" label="Sortierung" type="number" compact />
+        <!--
+          Vorerst ausgeblendet. Die gespeicherten Werte gehen beim Speichern
+          unverändert zurück — ausblenden löscht nichts.
+        -->
         <GField
+          v-if="MERKMALE_SICHTBAR"
           v-model="editing.bereich"
           as="select"
           label="Bereich"
@@ -643,6 +648,7 @@ async function remove(row: Video) {
           compact
         />
         <GField
+          v-if="MERKMALE_SICHTBAR"
           v-model="editing.schwierigkeit"
           as="select"
           label="Schwierigkeit"
@@ -723,7 +729,7 @@ async function remove(row: Video) {
         <span class="name t-truncate">{{ row.titel }}</span>
         <span class="muted t-truncate">{{ row.untertitel || '—' }}</span>
         <span class="muted">{{ row.dauer || '—' }}</span>
-        <span class="muted t-truncate">
+        <span v-if="MERKMALE_SICHTBAR" class="muted t-truncate">
           {{ [row.bereich, row.schwierigkeit].filter(Boolean).join(' · ') || '—' }}
         </span>
         <span class="muted t-truncate">

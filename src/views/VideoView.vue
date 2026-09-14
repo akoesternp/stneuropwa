@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useCreditsStore } from '@/stores/credits'
 import { useFortschrittStore } from '@/stores/fortschritt'
 import { useVideosStore } from '@/stores/videos'
-import { CREDITS_JE_VIDEO } from '@shared/types'
+import { CREDITS_JE_VIDEO, MERKMALE_SICHTBAR } from '@shared/types'
 
 /**
  * Die Abspielseite. Das <video>-Element zieht den Stream direkt von der API;
@@ -456,8 +456,8 @@ onBeforeUnmount(() => {
         <aside class="steckbrief">
           <h2 class="t-eyebrow">Auf einen Blick</h2>
           <dl class="werte">
-            <div v-if="video.bereich"><dt>Bereich</dt><dd>{{ video.bereich }}</dd></div>
-            <div v-if="video.schwierigkeit">
+            <div v-if="MERKMALE_SICHTBAR && video.bereich"><dt>Bereich</dt><dd>{{ video.bereich }}</dd></div>
+            <div v-if="MERKMALE_SICHTBAR && video.schwierigkeit">
               <dt>Schwierigkeit</dt><dd>{{ video.schwierigkeit }}</dd>
             </div>
             <div v-if="video.dauer"><dt>Dauer</dt><dd>{{ video.dauer }}</dd></div>
@@ -613,7 +613,7 @@ onBeforeUnmount(() => {
       :offen="frageOffen"
       art="Übung"
       :name="video.titel"
-      :zusatz="[video.bereich, video.dauer].filter(Boolean).join(' · ')"
+      :zusatz="[MERKMALE_SICHTBAR ? video.bereich : '', video.dauer].filter(Boolean).join(' · ')"
       :kosten="CREDITS_JE_VIDEO"
       :guthaben="guthaben"
       :busy="credits.busy"

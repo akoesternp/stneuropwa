@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import GButton from '@/components/ui/GButton.vue'
-import { SCHWIERIGKEITEN } from '@shared/types'
+import { SCHWIERIGKEITEN, MERKMALE_SICHTBAR } from '@shared/types'
 import type { Zugangsfilter } from '@/types'
 
 /**
@@ -75,32 +75,35 @@ function zuruecksetzen() {
     </label>
 
     <div class="chips">
-      <button
-        v-for="bereich in verfuegbareBereiche"
-        :key="bereich"
-        type="button"
-        class="chip"
-        :class="{ an: bereiche.includes(bereich) }"
-        @click="umschalten(bereiche, bereich)"
-      >
-        {{ bereich }}
-      </button>
+      <!-- Bereich und Schwierigkeit vorerst aus, siehe MERKMALE_SICHTBAR. -->
+      <template v-if="MERKMALE_SICHTBAR">
+        <button
+          v-for="bereich in verfuegbareBereiche"
+          :key="bereich"
+          type="button"
+          class="chip"
+          :class="{ an: bereiche.includes(bereich) }"
+          @click="umschalten(bereiche, bereich)"
+        >
+          {{ bereich }}
+        </button>
 
-      <span v-if="verfuegbareBereiche.length" class="trenner" aria-hidden="true" />
+        <span v-if="verfuegbareBereiche.length" class="trenner" aria-hidden="true" />
 
-      <button
-        v-for="grad in SCHWIERIGKEITEN"
-        :key="grad"
-        type="button"
-        class="chip"
-        :class="{ an: grade.includes(grad) }"
-        @click="umschalten(grade, grad)"
-      >
-        {{ grad }}
-      </button>
+        <button
+          v-for="grad in SCHWIERIGKEITEN"
+          :key="grad"
+          type="button"
+          class="chip"
+          :class="{ an: grade.includes(grad) }"
+          @click="umschalten(grade, grad)"
+        >
+          {{ grad }}
+        </button>
+      </template>
 
       <template v-if="mitZugang">
-        <span class="trenner" aria-hidden="true" />
+        <span v-if="MERKMALE_SICHTBAR" class="trenner" aria-hidden="true" />
 
         <button
           type="button"

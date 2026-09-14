@@ -35,6 +35,15 @@ export const STANDARD_BEREICHE = [
 export const SCHWIERIGKEITEN = ['leicht', 'mittel', 'schwer'] as const
 export type Schwierigkeit = (typeof SCHWIERIGKEITEN)[number]
 
+/**
+ * Bereich und Schwierigkeit sind vorerst ausgeblendet — überall an der
+ * Oberfläche, aber nicht in der Datenbank: gepflegte Werte bleiben erhalten
+ * und sind wieder da, sobald hier true steht. Der Typ steht ausdrücklich auf
+ * boolean, sonst behandelte TypeScript die Zweige hinter dem Literal false
+ * als unerreichbar.
+ */
+export const MERKMALE_SICHTBAR: boolean = false
+
 /* ── Credits ───────────────────────────────────────────────────────────── */
 
 /** Eine einzelne Übung kostet einen Credit. */

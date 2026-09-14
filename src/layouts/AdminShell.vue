@@ -5,6 +5,7 @@ import GButton from '@/components/ui/GButton.vue'
 import GLogo from '@/components/ui/GLogo.vue'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { MERKMALE_SICHTBAR } from '@shared/types'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -14,7 +15,7 @@ const nav = [
   { label: 'Zielgruppen', name: 'admin-zielgruppen' },
   { label: 'Pakete', name: 'admin-pakete' },
   { label: 'Videos', name: 'admin-videos' },
-  { label: 'Bereiche', name: 'admin-bereiche' },
+  ...(MERKMALE_SICHTBAR ? [{ label: 'Bereiche', name: 'admin-bereiche' }] : []),
   { label: 'Bestellungen', name: 'admin-bestellungen' },
   { label: 'Aktionen', name: 'admin-aktionen' },
   { label: 'Beiträge', name: 'admin-kommentare' },

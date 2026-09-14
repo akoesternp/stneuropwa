@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import SterneWertung from '@/components/SterneWertung.vue'
+import { MERKMALE_SICHTBAR } from '@shared/types'
 
 /**
  * Eine Video-Kachel — auf der Startseite wie in der Paketübersicht.
@@ -128,7 +129,7 @@ const thumbStyle = computed(() => ({
         Dieselbe Form wie die Filterknöpfe auf der Startseite: so ist auf einen
         Blick zu sehen, worüber sich diese Übung finden lässt.
       -->
-      <span v-if="kategorien.length" class="kategorien">
+      <span v-if="MERKMALE_SICHTBAR && kategorien.length" class="kategorien">
         <span v-for="wert in kategorien" :key="wert" class="kategorie">{{ wert }}</span>
       </span>
       <!-- Nur wenn es überhaupt Wertungen gibt: „0 Sterne" wäre eine Aussage,
