@@ -85,6 +85,17 @@ const vorschauVideos = computed(() =>
         -->
         <span v-if="freigeschaltet" class="marke frei">Freigeschaltet</span>
         <!--
+          Jede Übung schon da, das Paket selbst aber nicht: dann gibt es nichts
+          mehr zu kaufen, und ein Preis wäre eine falsche Aussage. Nur für
+          Angemeldete — bei Gästen hieße „freigeschaltet" bloß „öffentlich".
+        -->
+        <span
+          v-else-if="auth.isAuthenticated && paket.videos.length && !offen"
+          class="marke frei"
+        >
+          Alles freigeschaltet
+        </span>
+        <!--
           Der persönliche Preis, nicht der Listenpreis: wer die Hälfte des
           Pakets schon hat, soll auf der Karte sehen, dass es ihn weniger
           kostet als den Nachbarn.

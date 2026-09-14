@@ -77,18 +77,18 @@ export function paketPreis(anzahlVideos: number): number {
  * Freischaltung — auch für Übungen, die über ein anderes Paket schon offen
  * sind.
  *
- * Bleibt nichts übrig, kostet das Paket trotzdem 1: gekauft wird dann die
- * Zugehörigkeit, und die deckt ab, was später ins Paket wandert. Ein Paket
- * ganz ohne aktive Übungen kostet weiterhin nichts und ist gar nicht erst
- * kaufbar.
+ * Bleibt nichts übrig, kostet es 0 und ist nicht kaufbar: wer schon jede
+ * Übung hat, bekäme für seine Neuro nichts dazu. Kommt später eine Übung ins
+ * Paket, wird es wieder kaufbar — zum Preis dessen, was dann fehlt. Ein Paket
+ * ganz ohne aktive Übungen kostet ebenfalls nichts.
  *
  * Steht hier neben `paketPreis`, weil Paketübersicht und Kauf-Transaktion
  * dieselbe Formel brauchen — an zwei Stellen ausgerechnet liefe sie
  * auseinander, und dazwischen läge echtes Geld.
  */
 export function paketPreisFuerNutzer(anzahlGesamt: number, anzahlOffen: number): number {
-  if (anzahlGesamt <= 0) return 0
-  return Math.max(1, paketPreis(anzahlOffen))
+  if (anzahlGesamt <= 0 || anzahlOffen <= 0) return 0
+  return paketPreis(anzahlOffen)
 }
 
 /* ── Credits kaufen ────────────────────────────────────────────────────── */

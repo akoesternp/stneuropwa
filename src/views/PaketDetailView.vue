@@ -107,6 +107,13 @@ function anteil(videoId: number, dauer: string): number {
           </p>
         </div>
         <span v-if="hatPaket" class="marke frei">Freigeschaltet</span>
+        <!-- Jede Übung schon da, das Paket nicht: nichts mehr zu kaufen. -->
+        <span
+          v-else-if="auth.isAuthenticated && paket.videos.length && !offeneAnzahl"
+          class="marke frei"
+        >
+          Alles freigeschaltet
+        </span>
       </header>
 
       <!-- Der Kaufbereich verschwindet mit der letzten Sperre; ohne diese

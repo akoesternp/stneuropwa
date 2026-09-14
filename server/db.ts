@@ -2291,16 +2291,19 @@ export async function kaufePaket(benutzerId: number, paketId: number): Promise<K
       await conn.rollback()
       return { status: 'nicht-gefunden' }
     }
-    if (Number(paket.schonFrei) === 1) {
+    /*
+     * Schon frei ist ein Paket auch, wenn er jede Übung darin bereits hat —
+     * einzeln, öffentlich oder über ein anderes Paket. Die bloße Zugehörigkeit
+     * wird bewusst nicht verkauft; kommt später eine Übung dazu, ist das Paket
+     * für ihn wieder kaufbar, zum Preis dessen, was dann fehlt.
+     */
+    const vollstaendig = Number(paket.anzahl) > 0 && Number(paket.offen) === 0
+    if (Number(paket.schonFrei) === 1 || vollstaendig) {
       await conn.rollback()
       return { status: 'schon-frei' }
     }
 
-    /*
-     * `leer` hängt an der Gesamtzahl, nicht an den offenen: ein Paket ohne
-     * Inhalt bleibt unverkäuflich, ein vollständig freigeschaltetes kostet
-     * dagegen 1 und bleibt kaufbar — dort wird die Zugehörigkeit gekauft.
-     */
+    /* `leer` hängt an der Gesamtzahl: ein Paket ohne Inhalt bleibt unverkäuflich. */
     const kosten = paketPreisFuerNutzer(Number(paket.anzahl) || 0, Number(paket.offen) || 0)
     if (kosten <= 0) {
       await conn.rollback()
