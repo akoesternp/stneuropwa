@@ -459,7 +459,7 @@ Im Log muss stehen:
 ```
 Datenbank: stneuro auf 127.0.0.1:3306
 Videoverzeichnis: /var/lib/stneuro/videos
-  Admin angelegt: admin / …
+  Admin angelegt: admin (Passwort aus ADMIN_PASSWORD)
   Beispieldaten angelegt: 2 Pakete, 6 Video-Kacheln
 stneuro-Server läuft auf http://127.0.0.1:3001
 ```

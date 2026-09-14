@@ -27,8 +27,13 @@ async function ensureAdmin(log: (message: string) => void): Promise<void> {
 
   await upsertAdmin({ benutzer: user, passwort: await hashPassword(password), name: 'Admin' })
 
-  log(`  Admin angelegt: ${user} / ${password}`)
-  if (!process.env.ADMIN_PASSWORD) {
+  // Ein selbst gesetztes Passwort kommt NICHT ins Log: das landet im
+  // Journal, und das lesen mehr Leute und Werkzeuge als /etc/stneuro.env.
+  // Das Standardpasswort steht ohnehin in der Anleitung.
+  if (process.env.ADMIN_PASSWORD) {
+    log(`  Admin angelegt: ${user} (Passwort aus ADMIN_PASSWORD)`)
+  } else {
+    log(`  Admin angelegt: ${user} / ${password}`)
     log('  ⚠ Standardpasswort aktiv — bitte im Backend ändern oder ADMIN_PASSWORD setzen.')
   }
 }

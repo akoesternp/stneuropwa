@@ -9,6 +9,11 @@
 Description=stneuro Videoportal
 After=network-online.target
 Wants=network-online.target
+# Nach einem Fehlstart nicht endlos im Sekundentakt neu starten. Die beiden
+# gehören nach [Unit] — unter [Service] ignoriert systemd sie mit einer
+# Warnung („Unknown key"), und die Bremse greift nicht.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -26,9 +31,6 @@ ExecStart=/usr/bin/node server-dist/server/index.js
 
 Restart=always
 RestartSec=5
-# Nach einem Fehlstart nicht endlos im Sekundentakt neu starten.
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
