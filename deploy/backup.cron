@@ -1,3 +1,4 @@
-# /etc/cron.d/stneuro-backup — tägliche Sicherung um 2:45 Uhr.
-# (Das Händlerportal sichert um 2:30; die Läufe sollen sich nicht drängeln.)
-45 2 * * * root /bin/sh /opt/stneuro/deploy/backup.sh
+# /etc/cron.d/stneuro-backup — tägliche Sicherung um 2:45 Uhr (Serverzeit).
+# Läuft auf dem Server schon eine nächtliche Sicherung der anderen Webseite,
+# die Uhrzeit so legen, dass sich die Läufe nicht überschneiden.
+45 2 * * * root /bin/sh /opt/stneuro/app/deploy/backup.sh

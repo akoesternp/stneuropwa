@@ -14,7 +14,9 @@ Wants=network-online.target
 Type=simple
 User=stneuro
 Group=stneuro
-WorkingDirectory=/opt/stneuro
+# /opt/stneuro ist das Heimatverzeichnis (Deploy Key, npm-Zwischenspeicher),
+# die Anwendung liegt eine Ebene tiefer — git clone verlangt ein leeres Ziel.
+WorkingDirectory=/opt/stneuro/app
 
 # PORT, HOST, SECURE_COOKIES … — siehe deploy/README.md.
 # Die Datei gehört NICHT ins Repo: sie kann ADMIN_PASSWORD enthalten.
