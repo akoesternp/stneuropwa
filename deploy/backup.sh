@@ -30,7 +30,12 @@ mkdir -p "$ZIEL"
 
 STEMPEL=$(date +%F)
 
-mariadb-dump --single-transaction \
+# MariaDB bringt mariadb-dump mit, MySQL nur mysqldump. --no-tablespaces,
+# weil MySQL 8 sonst das PROCESS-Recht verlangt, das der Benutzer stneuro
+# bewusst nicht hat.
+DUMP=$(command -v mariadb-dump || command -v mysqldump)
+
+"$DUMP" --single-transaction --no-tablespaces \
   -h "${DB_HOST:-127.0.0.1}" -P "${DB_PORT:-3306}" \
   -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" \
   | gzip > "$ZIEL/db-$STEMPEL.sql.gz"

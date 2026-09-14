@@ -63,6 +63,13 @@ function getPool(): Pool {
     connectionLimit: 5,
     // Zähler und Zeitstempel passen in number; BigInt bräuchte hier niemand.
     bigIntAsNumber: true,
+    // Nur für MySQL 8+: dessen Standard-Anmeldung (caching_sha2_password)
+    // braucht über eine unverschlüsselte Verbindung den öffentlichen Schlüssel
+    // des Servers. Ohne diese Freigabe klappt die Anmeldung nur, solange der
+    // Server sie noch zwischengespeichert hat — nach seinem Neustart nicht
+    // mehr. Die Datenbank läuft auf demselben Rechner; wer den Schlüssel dort
+    // unterschieben könnte, hat ohnehin root. MariaDB fragt nie danach.
+    allowPublicKeyRetrieval: true,
   })
   return pool
 }

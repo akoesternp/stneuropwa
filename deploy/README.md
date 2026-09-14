@@ -131,7 +131,8 @@ timedatectl                              # Zeitzone
 | Auf 80/443 hört **Apache** | Passt. Apache bekommt nur einen weiteren vHost dazu. |
 | Auf 80/443 hört **nginx** | Diese Anleitung passt so nicht — zwei Webserver können nicht beide auf 80/443. Dann gehört eine nginx-Vorlage statt `deploy/apache.conf` her; hier nicht weitermachen. |
 | Auf 80/443 hört **nichts** | Die Seite läuft woanders oder gar nicht mehr — erst klären. |
-| **MariaDB/MySQL** läuft schon | Schritt 1 installiert nichts doppelt, Schritt 3 entfällt; stneuro bekommt in Schritt 6 trotzdem eine eigene Datenbank. Bei MySQL statt MariaDB heißt der Dump-Befehl in `deploy/backup.sh` `mysqldump`. |
+| **MariaDB** läuft schon | Schritt 1 ohne `mariadb-server`, Schritt 3 entfällt; stneuro bekommt in Schritt 6 trotzdem eine eigene Datenbank. |
+| **MySQL** läuft schon | Genauso — MySQL behalten, nicht zusätzlich MariaDB installieren (beide wollen Port 3306 und dieselben Pfade). Was anders ist, steht im Kasten unter Schritt 6. |
 | Port **3001** ist belegt | Einen anderen freien Port wählen und ihn in `/etc/stneuro.env` (`PORT`) **und** in `deploy/apache.conf` (`ProxyPass`) eintragen. |
 | Zeitzone ist nicht Europe/Berlin | `timedatectl set-timezone Europe/Berlin` — sonst läuft die nächtliche Sicherung zur falschen Stunde und die Log-Zeiten sind verschoben. |
 
@@ -324,6 +325,31 @@ Das Passwort ohne `'` und ohne Leerzeichen wählen, dann gibt es auch in
 
 Die Tabellen legt der Dienst beim ersten Start selbst an — es gibt kein
 separates Schema-Skript, das aus dem Tritt geraten könnte.
+
+### Wenn MySQL statt MariaDB läuft
+
+Erst klären, was es wirklich ist — unter Debian heißen beide gern `mysql`
+(der Befehl `mysql` und der Dienst `mysql.service` sind dort oft nur andere
+Namen für MariaDB):
+
+```bash
+mysql --version            # enthält "MariaDB" → es ist MariaDB, alles wie oben
+mysql -u root -p -e 'SELECT VERSION();'
+```
+
+Ist es tatsächlich **MySQL**, dann muss es **8.0 oder neuer** sein. stneuro
+läuft damit ohne Änderung — das Schema benutzt nichts, was nur MariaDB
+kennt, und der Dienst meldet sich auch mit MySQLs Standardverfahren
+(`caching_sha2_password`) an. Anders ist nur das Drumherum:
+
+| Statt | bei MySQL |
+|---|---|
+| `mariadb` | `mysql -u root -p` — oder nur `mysql`, wenn root über den Socket angemeldet ist |
+| `mariadb-dump` | `mysqldump` — `deploy/backup.sh` nimmt von selbst, was da ist |
+| `mariadb-secure-installation` (Schritt 3) | entfällt, die bestehende Installation ist ja eingerichtet |
+
+Die SQL-Befehle oben gelten unverändert. Den zweiten Benutzer für
+`127.0.0.1` braucht MySQL genauso.
 
 ## 7. Umgebungsvariablen
 
@@ -593,8 +619,8 @@ bestehende Webseite schon irgendwohin, lässt sich das Verzeichnis dort
 anhängen.
 
 Zum Zurückspielen: Dienst stoppen,
-`zcat db-<datum>.sql.gz | mariadb stneuro` einspielen (als root), Dienst
-starten.
+`zcat db-<datum>.sql.gz | mariadb stneuro` einspielen (als root; bei MySQL
+`mysql` statt `mariadb`), Dienst starten.
 
 ---
 
@@ -660,7 +686,7 @@ Alle Anmeldungen auf einmal beenden:
 
 ```bash
 systemctl stop stneuro
-mariadb stneuro -e 'DELETE FROM sessions;'
+mariadb stneuro -e 'DELETE FROM sessions;'    # bei MySQL: mysql statt mariadb
 systemctl start stneuro
 ```
 
@@ -752,6 +778,8 @@ ls -lh /var/lib/stneuro/vorschaubilder/geloescht-*.jpg
 | `502 Bad Gateway` / `503 Service Unavailable` | Dienst läuft nicht — `journalctl -u stneuro -n 50` |
 | Dienst startet nicht, Log: „MariaDB nicht erreichbar" | MariaDB läuft nicht oder `DB_*`-Variablen falsch |
 | Log: „Access denied for user 'stneuro'@…" | Benutzer nur für `localhost` **oder** `127.0.0.1` angelegt — Schritt 6, beide |
+| `mariadb: command not found` | Es läuft MySQL — `mysql` statt `mariadb`, siehe Kasten unter Schritt 6 |
+| Sicherung bricht ab: „Access denied; you need … PROCESS privilege" | Alte `backup.sh` ohne `--no-tablespaces` — neu aus `deploy/` kopieren bzw. `git pull` |
 | `git clone`: „Permission denied (publickey)" | Deploy Key nicht bei GitHub eingetragen, oder ohne `sudo -u stneuro -H` geklont |
 | `npm run build` bricht mit „heap out of memory" ab | Zu wenig RAM — Schritt 5, `NODE_OPTIONS` oder Auslagerungsdatei |
 | `apachectl configtest`: „Invalid command …" | Ein Modul fehlt — Schritt 9, `a2enmod` |
