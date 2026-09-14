@@ -778,8 +778,6 @@ ls -lh /var/lib/stneuro/vorschaubilder/geloescht-*.jpg
 | `502 Bad Gateway` / `503 Service Unavailable` | Dienst läuft nicht — `journalctl -u stneuro -n 50` |
 | Dienst startet nicht, Log: „MariaDB nicht erreichbar" | MariaDB läuft nicht oder `DB_*`-Variablen falsch |
 | Log: „Access denied for user 'stneuro'@…" | Benutzer nur für `localhost` **oder** `127.0.0.1` angelegt — Schritt 6, beide |
-| `mariadb: command not found` | Es läuft MySQL — `mysql` statt `mariadb`, siehe Kasten unter Schritt 6 |
-| Sicherung bricht ab: „Access denied; you need … PROCESS privilege" | Alte `backup.sh` ohne `--no-tablespaces` — neu aus `deploy/` kopieren bzw. `git pull` |
 | `git clone`: „Permission denied (publickey)" | Deploy Key nicht bei GitHub eingetragen, oder ohne `sudo -u stneuro -H` geklont |
 | `npm run build` bricht mit „heap out of memory" ab | Zu wenig RAM — Schritt 5, `NODE_OPTIONS` oder Auslagerungsdatei |
 | `apachectl configtest`: „Invalid command …" | Ein Modul fehlt — Schritt 9, `a2enmod` |
