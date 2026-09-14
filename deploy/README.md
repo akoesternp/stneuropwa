@@ -1,13 +1,13 @@
 # Inbetriebnahme auf einem frischen Debian-Server
 
-Für `stneuro.np-dev.de` mit systemd, Apache und MariaDB — auf einem eigenen
+Für `shop.st-neuro.np-dev.de` mit systemd, Apache und MariaDB — auf einem eigenen
 Server, auf dem bisher nur **eine andere Webseite** läuft. Außer dieser Seite
 ist nichts vorhanden; alles, was stneuro braucht, wird hier von Grund auf
 eingerichtet. Die bestehende Seite bleibt dabei unangetastet.
 
 Alle Befehle als `root` bzw. mit `sudo`.
 
-> **Andere Domain?** Dann `stneuro.np-dev.de` überall ersetzen — in
+> **Andere Domain?** Dann `shop.st-neuro.np-dev.de` überall ersetzen — in
 > `deploy/apache.conf` und in den Befehlen unten.
 
 ## Reihenfolge auf einen Blick
@@ -147,13 +147,13 @@ sein, 3001 und 3306 **nicht**. Mit ufw:
 ufw allow 'WWW Full'      # 80 und 443 — SSH vorher erlaubt lassen!
 ```
 
-Und im **DNS** den A-Eintrag (bei IPv6 auch AAAA) für `stneuro.np-dev.de` auf
+Und im **DNS** den A-Eintrag (bei IPv6 auch AAAA) für `shop.st-neuro.np-dev.de` auf
 diesen Server setzen — das dauert eine Weile, bis es überall ankommt, und
 ohne ihn gibt es in Schritt 9 kein Zertifikat.
 
 ```bash
-dig +short stneuro.np-dev.de A
-dig +short stneuro.np-dev.de AAAA        # leer oder die IPv6 dieses Servers
+dig +short shop.st-neuro.np-dev.de A
+dig +short shop.st-neuro.np-dev.de AAAA        # leer oder die IPv6 dieses Servers
 ```
 
 ## 1. Systempakete
@@ -503,8 +503,8 @@ bisher nur über http, ändert das für sie nichts.
 
 ```bash
 mkdir -p /var/www/letsencrypt
-cp /opt/stneuro/app/deploy/apache.conf /etc/apache2/sites-available/stneuro.np-dev.de.conf
-a2ensite stneuro.np-dev.de
+cp /opt/stneuro/app/deploy/apache.conf /etc/apache2/sites-available/shop.st-neuro.np-dev.de.conf
+a2ensite shop.st-neuro.np-dev.de
 apachectl configtest && systemctl reload apache2
 ```
 
@@ -514,7 +514,7 @@ Schritt 0 vergleichen: als Standard-Server („default server") für `*:80` und
 `*:443` muss dieselbe Seite wie vorher dastehen. Apache nimmt je Port den
 vHost, der alphabetisch zuerst geladen wird; ist das plötzlich stneuro, die
 Datei unter einem später einsortierten Namen ablegen (z. B.
-`zz-stneuro.np-dev.de.conf`) — sonst landet jeder Aufruf ohne passenden
+`zz-shop.st-neuro.np-dev.de.conf`) — sonst landet jeder Aufruf ohne passenden
 Namen, etwa über die nackte IP, im Videoportal.
 
 Prüfen, dass der Prüfpfad von außen erreichbar ist:
@@ -522,17 +522,53 @@ Prüfen, dass der Prüfpfad von außen erreichbar ist:
 ```bash
 mkdir -p /var/www/letsencrypt/.well-known/acme-challenge
 echo ok > /var/www/letsencrypt/.well-known/acme-challenge/probe
-curl -s http://stneuro.np-dev.de/.well-known/acme-challenge/probe    # ok
+curl -s http://shop.st-neuro.np-dev.de/.well-known/acme-challenge/probe    # ok
 rm /var/www/letsencrypt/.well-known/acme-challenge/probe
 ```
 
 Kommt statt `ok` eine Weiterleitung oder die andere Webseite, stimmt DNS
 noch nicht oder der vHost ist nicht aktiv — dann scheitert auch certbot.
 
+### Übergangsweise ohne HTTPS
+
+Solange es kein Zertifikat gibt, leitet der Port-80-vHost **nicht** auf
+HTTPS weiter, sondern liefert das Portal unverschlüsselt aus. So lässt sich
+alles andere schon einrichten und ausprobieren; nach certbot und einem
+Reload schaltet dieselbe Datei von selbst auf Weiterleitung um.
+
+Dafür in `/etc/stneuro.env` vorübergehend:
+
+```
+SECURE_COOKIES=0
+```
+
+```bash
+systemctl restart stneuro
+curl -sI http://shop.st-neuro.np-dev.de/ | head -1     # 200, nicht 301
+```
+
+Mit `SECURE_COOKIES=1` verwirft der Browser das Sitzungscookie über http:
+die Anmeldung scheint zu klappen, man fliegt aber sofort wieder raus.
+
+Zeigt der DNS-Eintrag noch nicht auf den Server, lässt sich trotzdem
+testen — auf dem Arbeitsrechner in
+`C:\Windows\System32\drivers\etc\hosts` (als Administrator bearbeiten) eine
+Zeile `<IP des Servers> shop.st-neuro.np-dev.de` eintragen und danach wieder
+entfernen.
+
+Solange es so läuft, geht **alles im Klartext** übers Netz, auch Passwörter.
+Also nur zum Einrichten, nicht mit echten Kunden. Der Service Worker
+registriert sich ohne HTTPS nicht; installieren lässt sich die App erst
+danach.
+
+**Sobald das Zertifikat da ist** (nächster Abschnitt): `SECURE_COOKIES=1`,
+`systemctl restart stneuro` — und das Admin-Passwort ändern, weil es bis
+dahin unverschlüsselt unterwegs war.
+
 ### Zertifikat holen
 
 ```bash
-certbot certonly --webroot -w /var/www/letsencrypt -d stneuro.np-dev.de \
+certbot certonly --webroot -w /var/www/letsencrypt -d shop.st-neuro.np-dev.de \
   --deploy-hook "systemctl reload apache2"
 systemctl reload apache2
 ```
@@ -561,10 +597,10 @@ Konfiguration.
 ## 10. Abnahme
 
 ```bash
-curl -I  https://stneuro.np-dev.de/                     # 200
-curl -sI http://stneuro.np-dev.de/ | head -1            # 301 auf https
-curl -s  https://stneuro.np-dev.de/api/portal/videos    # JSON mit den öffentlichen Kacheln
-curl -s  https://stneuro.np-dev.de/api/admin/health     # {"error":"Nicht angemeldet."}
+curl -I  https://shop.st-neuro.np-dev.de/                     # 200
+curl -sI http://shop.st-neuro.np-dev.de/ | head -1            # 301 auf https
+curl -s  https://shop.st-neuro.np-dev.de/api/portal/videos    # JSON mit den öffentlichen Kacheln
+curl -s  https://shop.st-neuro.np-dev.de/api/admin/health     # {"error":"Nicht angemeldet."}
 ```
 
 Und die Wege, über die Geld hereinkommt:
@@ -572,18 +608,18 @@ Und die Wege, über die Geld hereinkommt:
 ```bash
 # Zeigt, welche Zahlwege scharf sind — beide müssen auf true stehen,
 # und PayPal auf "live", nicht "sandbox".
-curl -s https://stneuro.np-dev.de/api/portal/zahlung/konfig
+curl -s https://shop.st-neuro.np-dev.de/api/portal/zahlung/konfig
 
 # Die Kontaktadresse aus KONTAKT_EMAIL.
-curl -s https://stneuro.np-dev.de/api/portal/kontakt
+curl -s https://shop.st-neuro.np-dev.de/api/portal/kontakt
 ```
 
 Von außen — also **vom Arbeitsrechner**, nicht auf dem Server — dürfen
 Port 3001 und die Datenbank **nicht** erreichbar sein:
 
 ```bash
-curl --max-time 5 http://stneuro.np-dev.de:3001/   # muss scheitern
-nc -vz -w 5 stneuro.np-dev.de 3306                 # muss scheitern
+curl --max-time 5 http://shop.st-neuro.np-dev.de:3001/   # muss scheitern
+nc -vz -w 5 shop.st-neuro.np-dev.de 3306                 # muss scheitern
 ```
 
 Und die bestehende Webseite einmal im Browser aufrufen — sie muss aussehen
@@ -703,8 +739,8 @@ Browserfenster offenbleiben muss:
 
 ```bash
 # vom Arbeitsrechner — root bzw. der SSH-Benutzer, mit dem du dich anmeldest
-rsync -av --progress *.mp4 root@stneuro.np-dev.de:/var/lib/stneuro/videos/
-ssh root@stneuro.np-dev.de 'chown stneuro:stneuro /var/lib/stneuro/videos/*'
+rsync -av --progress *.mp4 root@shop.st-neuro.np-dev.de:/var/lib/stneuro/videos/
+ssh root@shop.st-neuro.np-dev.de 'chown stneuro:stneuro /var/lib/stneuro/videos/*'
 ```
 
 Danach in der Verwaltung (**Videos → Bearbeiten → Videodatei**) die Datei mit
